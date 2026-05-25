@@ -1,0 +1,8 @@
+.env
+latency_report.json
+reports/
+venv/
+mock-backend-service/venv/
+target/
+api-gateway/target/
+mock-backend-service/mock-backend-service/target/

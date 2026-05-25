@@ -1,0 +1,9 @@
+# System requirements for Distributed System API Gateway
+# - Java 17
+# - Maven wrapper available in api-gateway and mock-backend-service
+# - Redis 7.x or compatible cluster
+# - Python 3.10+ to run the Redis latency evaluation helper
+# - A valid Redis provider API token for cluster latency monitoring
+
+requests>=2.31.0
+redis>=5.0.0

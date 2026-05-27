@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # 1. Khởi chạy Redis Server
+  redis-server:
+    image: redis:7-alpine
+    container_name: redis-server
+    ports:
+      - "6379:6379"
+    networks:
+      - gateway-network
+
+  # 2. Khởi chạy Mock Backend Service (Chạy ở cổng 8081)
+  mock-backend:
+    build:
+      context: ./mock-backend-service/mock-backend-service
+      dockerfile: Dockerfile
+    image: mock-backend-service:latest
+    env_file:
+      - .env
+    ports:
+      - "8081:8081"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/api/v1/hello || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gateway-network
+
+  # 3. Khởi chạy API Gateway (Chạy ở cổng 8080)
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    image: api-gateway:latest
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    depends_on:
+      - redis-server
+      - mock-backend
+    networks:
+      - gateway-network
+
+  # Optional: a small admin UI for Redis (for dev only)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    environment:
+      - REDIS_HOSTS=local:redis-server:6379
+    ports:
+      - "8082:8081"
+    depends_on:
+      - redis-server
+    networks:
+      - gateway-network
+
+networks:
+  gateway-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local

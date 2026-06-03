@@ -4,8 +4,8 @@ x-gateway-env: &gateway-env
   REDIS_PORT: 6379
   RATE_LIMIT_REQUESTS_PER_MINUTE: ${RATE_LIMIT_REQUESTS_PER_MINUTE:-60}
   RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
-  RATE_LIMIT_REDIS_FAILURE_POLICY: ${RATE_LIMIT_REDIS_FAILURE_POLICY:-fail-closed}
 
+# Base gateway service definition – shared by all strategy variants
 x-gateway-common: &gateway-common
   build:
     context: ./api-gateway
@@ -15,12 +15,19 @@ x-gateway-common: &gateway-common
     - .env
   restart: unless-stopped
   depends_on:
-    - redis
-    - mock-backend
+    redis:
+      condition: service_healthy
+    mock-backend:
+      condition: service_started
   networks:
     - gateway-network
 
 services:
+
+  # ---------------------------------------------------------------------------
+  # Infrastructure
+  # ---------------------------------------------------------------------------
+
   redis:
     image: redis:7-alpine
     container_name: gateway-redis
@@ -28,6 +35,11 @@ services:
       - "6379:6379"
     volumes:
       - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - gateway-network
 
@@ -44,38 +56,7 @@ services:
     networks:
       - gateway-network
 
-  api-gateway-redis-sliding-window:
-    <<: *gateway-common
-    environment:
-      <<: *gateway-env
-      RATE_LIMIT_STRATEGY: redis-sliding-window
-    ports:
-      - "8080:8080"
-
-  api-gateway-redis-fixed-window:
-    <<: *gateway-common
-    environment:
-      <<: *gateway-env
-      RATE_LIMIT_STRATEGY: redis-fixed-window
-    ports:
-      - "8082:8080"
-
-  api-gateway-redis-token-bucket:
-    <<: *gateway-common
-    environment:
-      <<: *gateway-env
-      RATE_LIMIT_STRATEGY: redis-token-bucket
-    ports:
-      - "8083:8080"
-
-  api-gateway-in-memory:
-    <<: *gateway-common
-    environment:
-      <<: *gateway-env
-      RATE_LIMIT_STRATEGY: in-memory
-    ports:
-      - "8084:8080"
-
+  # Redis Commander – GUI for inspecting rate-limit keys
   redis-commander:
     image: rediscommander/redis-commander:latest
     environment:
@@ -83,9 +64,129 @@ services:
     ports:
       - "8085:8081"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
       - gateway-network
+
+  # ---------------------------------------------------------------------------
+  # Strategy matrix – primary strategies (fail-closed is the default policy)
+  # ---------------------------------------------------------------------------
+
+  api-gateway-redis-sliding-window:
+    <<: *gateway-common
+    container_name: gw-sliding-window
+    environment:
+      <<: *gateway-env
+      RATE_LIMIT_STRATEGY: redis-sliding-window
+      RATE_LIMIT_REDIS_FAILURE_POLICY: fail-closed
+    ports:
+      - "8080:8080"
+
+  api-gateway-redis-fixed-window:
+    <<: *gateway-common
+    container_name: gw-fixed-window
+    environment:
+      <<: *gateway-env
+      RATE_LIMIT_STRATEGY: redis-fixed-window
+      RATE_LIMIT_REDIS_FAILURE_POLICY: fail-closed
+    ports:
+      - "8082:8080"
+
+  api-gateway-redis-token-bucket:
+    <<: *gateway-common
+    container_name: gw-token-bucket
+    environment:
+      <<: *gateway-env
+      RATE_LIMIT_STRATEGY: redis-token-bucket
+      RATE_LIMIT_REDIS_FAILURE_POLICY: fail-closed
+    ports:
+      - "8083:8080"
+
+  api-gateway-in-memory:
+    <<: *gateway-common
+    container_name: gw-in-memory
+    environment:
+      <<: *gateway-env
+      RATE_LIMIT_STRATEGY: in-memory
+      # in-memory never touches Redis, so failure policy is irrelevant
+      RATE_LIMIT_REDIS_FAILURE_POLICY: fail-closed
+    ports:
+      - "8084:8080"
+
+  # ---------------------------------------------------------------------------
+  # Fault-tolerance policy matrix – expose each policy on a dedicated port so
+  # run_latency_experiments.py can target them independently.
+  #
+  # Naming convention:  gw-{strategy}-{policy}
+  # Port convention:    8090-8099 reserved for fault-tolerance experiment ports
+  # ---------------------------------------------------------------------------
+
+  # redis-fixed-window × fail-open  (port 8090)
+  api-gateway-fixed-window-fail-open:
+    <<: *gateway-common
+    container_name: gw-fixed-window-fail-open
+    environment:
+      <<: *gateway-env
+      RATE_LIMIT_STRATEGY: redis-fixed-window
+      RATE_LIMIT_REDIS_FAILURE_POLICY: fail-open
+    ports:
+      - "8090:8080"
+
+  # redis-fixed-window × local-fallback  (port 8091)
+  api-gateway-fixed-window-local-fallback:
+    <<: *gateway-common
+    container_name: gw-fixed-window-local-fallback
+    environment:
+      <<: *gateway-env
+      RATE_LIMIT_STRATEGY: redis-fixed-window
+      RATE_LIMIT_REDIS_FAILURE_POLICY: local-fallback
+    ports:
+      - "8091:8080"
+
+  # redis-token-bucket × fail-open  (port 8092)
+  api-gateway-token-bucket-fail-open:
+    <<: *gateway-common
+    container_name: gw-token-bucket-fail-open
+    environment:
+      <<: *gateway-env
+      RATE_LIMIT_STRATEGY: redis-token-bucket
+      RATE_LIMIT_REDIS_FAILURE_POLICY: fail-open
+    ports:
+      - "8092:8080"
+
+  # redis-token-bucket × local-fallback  (port 8093)
+  api-gateway-token-bucket-local-fallback:
+    <<: *gateway-common
+    container_name: gw-token-bucket-local-fallback
+    environment:
+      <<: *gateway-env
+      RATE_LIMIT_STRATEGY: redis-token-bucket
+      RATE_LIMIT_REDIS_FAILURE_POLICY: local-fallback
+    ports:
+      - "8093:8080"
+
+  # redis-sliding-window × fail-open  (port 8094)
+  api-gateway-sliding-window-fail-open:
+    <<: *gateway-common
+    container_name: gw-sliding-window-fail-open
+    environment:
+      <<: *gateway-env
+      RATE_LIMIT_STRATEGY: redis-sliding-window
+      RATE_LIMIT_REDIS_FAILURE_POLICY: fail-open
+    ports:
+      - "8094:8080"
+
+  # redis-sliding-window × local-fallback  (port 8095)
+  api-gateway-sliding-window-local-fallback:
+    <<: *gateway-common
+    container_name: gw-sliding-window-local-fallback
+    environment:
+      <<: *gateway-env
+      RATE_LIMIT_STRATEGY: redis-sliding-window
+      RATE_LIMIT_REDIS_FAILURE_POLICY: local-fallback
+    ports:
+      - "8095:8080"
 
 networks:
   gateway-network:

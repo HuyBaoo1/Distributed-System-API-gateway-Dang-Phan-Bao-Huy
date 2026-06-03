@@ -1,16 +1,36 @@
-version: '3.8'
+x-gateway-env: &gateway-env
+  BACKEND_BASE_URL: http://mock-backend:8081
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  RATE_LIMIT_REQUESTS_PER_MINUTE: ${RATE_LIMIT_REQUESTS_PER_MINUTE:-60}
+  RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
+  RATE_LIMIT_REDIS_FAILURE_POLICY: ${RATE_LIMIT_REDIS_FAILURE_POLICY:-fail-closed}
+
+x-gateway-common: &gateway-common
+  build:
+    context: ./api-gateway
+    dockerfile: Dockerfile
+  image: api-gateway:latest
+  env_file:
+    - .env
+  restart: unless-stopped
+  depends_on:
+    - redis
+    - mock-backend
+  networks:
+    - gateway-network
 
 services:
-  # 1. Khởi chạy Redis Server
-  redis-server:
+  redis:
     image: redis:7-alpine
-    container_name: redis-server
+    container_name: gateway-redis
     ports:
       - "6379:6379"
+    volumes:
+      - redis-data:/data
     networks:
       - gateway-network
 
-  # 2. Khởi chạy Mock Backend Service (Chạy ở cổng 8081)
   mock-backend:
     build:
       context: ./mock-backend-service/mock-backend-service
@@ -21,40 +41,49 @@ services:
     ports:
       - "8081:8081"
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8081/api/v1/hello || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - gateway-network
 
-  # 3. Khởi chạy API Gateway (Chạy ở cổng 8080)
-  api-gateway:
-    build:
-      context: ./api-gateway
-      dockerfile: Dockerfile
-    image: api-gateway:latest
-    env_file:
-      - .env
+  api-gateway-redis-sliding-window:
+    <<: *gateway-common
+    environment:
+      <<: *gateway-env
+      RATE_LIMIT_STRATEGY: redis-sliding-window
     ports:
       - "8080:8080"
-    restart: unless-stopped
-    depends_on:
-      - redis-server
-      - mock-backend
-    networks:
-      - gateway-network
 
-  # Optional: a small admin UI for Redis (for dev only)
+  api-gateway-redis-fixed-window:
+    <<: *gateway-common
+    environment:
+      <<: *gateway-env
+      RATE_LIMIT_STRATEGY: redis-fixed-window
+    ports:
+      - "8082:8080"
+
+  api-gateway-redis-token-bucket:
+    <<: *gateway-common
+    environment:
+      <<: *gateway-env
+      RATE_LIMIT_STRATEGY: redis-token-bucket
+    ports:
+      - "8083:8080"
+
+  api-gateway-in-memory:
+    <<: *gateway-common
+    environment:
+      <<: *gateway-env
+      RATE_LIMIT_STRATEGY: in-memory
+    ports:
+      - "8084:8080"
+
   redis-commander:
     image: rediscommander/redis-commander:latest
     environment:
-      - REDIS_HOSTS=local:redis-server:6379
+      REDIS_HOSTS: local:redis:6379
     ports:
-      - "8082:8081"
+      - "8085:8081"
     depends_on:
-      - redis-server
+      - redis
     networks:
       - gateway-network
 

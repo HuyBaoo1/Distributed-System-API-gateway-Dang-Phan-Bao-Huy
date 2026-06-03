@@ -10,24 +10,23 @@ import org.springframework.stereotype.Service;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.UUID;
 
 @Service
-@ConditionalOnProperty(name = "rate.limit.strategy", havingValue = "redis-sliding-window")
-public class RedisSlidingWindowRateLimiterService implements RateLimiterService {
+@ConditionalOnProperty(name = "rate.limit.strategy", havingValue = "redis-token-bucket")
+public class RedisTokenBucketRateLimiterService implements RateLimiterService {
 
     private final StringRedisTemplate redisTemplate;
-    private final RedisScript<List> slidingWindowRateLimitScript;
+    private final RedisScript<List> tokenBucketRateLimitScript;
     private final RateLimiterProperties properties;
     private final RedisFailureHandler redisFailureHandler;
 
-    public RedisSlidingWindowRateLimiterService(StringRedisTemplate redisTemplate,
-                                                @Qualifier("slidingWindowRateLimitScript")
-                                                RedisScript<List> slidingWindowRateLimitScript,
-                                                RateLimiterProperties properties,
-                                                RedisFailureHandler redisFailureHandler) {
+    public RedisTokenBucketRateLimiterService(StringRedisTemplate redisTemplate,
+                                              @Qualifier("tokenBucketRateLimitScript")
+                                              RedisScript<List> tokenBucketRateLimitScript,
+                                              RateLimiterProperties properties,
+                                              RedisFailureHandler redisFailureHandler) {
         this.redisTemplate = redisTemplate;
-        this.slidingWindowRateLimitScript = slidingWindowRateLimitScript;
+        this.tokenBucketRateLimitScript = tokenBucketRateLimitScript;
         this.properties = properties;
         this.redisFailureHandler = redisFailureHandler;
     }
@@ -36,18 +35,14 @@ public class RedisSlidingWindowRateLimiterService implements RateLimiterService 
     public RateLimitDecision tryConsume(HttpServletRequest request) {
         String key = buildKey(request);
         long nowMillis = System.currentTimeMillis();
-        long windowMillis = properties.windowSeconds() * 1000L;
-        long minimumAllowedTimestamp = nowMillis - windowMillis;
-        String memberId = UUID.randomUUID().toString();
+        long refillPeriodMillis = properties.windowSeconds() * 1000L;
 
         try {
-            List<String> result = executeSlidingWindowScript(
+            List<String> result = executeTokenBucketScript(
                     key,
                     properties.requestsPerMinute(),
-                    minimumAllowedTimestamp,
                     nowMillis,
-                    memberId,
-                    windowMillis
+                    refillPeriodMillis
             );
 
             if (result == null || result.size() < 3) {
@@ -57,35 +52,30 @@ public class RedisSlidingWindowRateLimiterService implements RateLimiterService 
             boolean allowed = "1".equals(result.get(0));
             int remaining = Integer.parseInt(result.get(1));
             long resetMillis = Long.parseLong(result.get(2));
-            long resetSeconds = millisToCeilSeconds(resetMillis);
 
-            return new RateLimitDecision(allowed, remaining, resetSeconds, properties.requestsPerMinute());
+            return new RateLimitDecision(allowed, remaining, millisToCeilSeconds(resetMillis), properties.requestsPerMinute());
         } catch (RuntimeException ex) {
             return redisFailureHandler.onRedisFailure(request);
         }
     }
 
     @SuppressWarnings("unchecked")
-    private List<String> executeSlidingWindowScript(String key,
-                                                    int requestLimit,
-                                                    long minimumAllowedTimestamp,
-                                                    long nowMillis,
-                                                    String memberId,
-                                                    long windowMillis) {
+    private List<String> executeTokenBucketScript(String key,
+                                                  int requestLimit,
+                                                  long nowMillis,
+                                                  long refillPeriodMillis) {
         return redisTemplate.execute(
-                slidingWindowRateLimitScript,
+                tokenBucketRateLimitScript,
                 Collections.singletonList(key),
                 String.valueOf(requestLimit),
-                String.valueOf(minimumAllowedTimestamp),
                 String.valueOf(nowMillis),
-                memberId,
-                String.valueOf(windowMillis)
+                String.valueOf(refillPeriodMillis)
         );
     }
 
     private String buildKey(HttpServletRequest request) {
         String clientIp = ClientIdentity.from(request);
-        return String.format("distributed:rate:%s:%s", clientIp, request.getRequestURI());
+        return String.format("distributed:token-bucket:%s:%s", clientIp, request.getRequestURI());
     }
 
     private long millisToCeilSeconds(long resetMillis) {

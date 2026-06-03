@@ -8,6 +8,7 @@ public class RateLimiterProperties {
     private String strategy = "redis-sliding-window";
     private int requestsPerMinute = 60;
     private int windowSeconds = 60;
+    private String redisFailurePolicy = "fail-closed";
 
     public String strategy() {
         return strategy;
@@ -31,5 +32,13 @@ public class RateLimiterProperties {
 
     public void setWindowSeconds(int windowSeconds) {
         this.windowSeconds = windowSeconds;
+    }
+
+    public String redisFailurePolicy() {
+        return redisFailurePolicy;
+    }
+
+    public void setRedisFailurePolicy(String redisFailurePolicy) {
+        this.redisFailurePolicy = redisFailurePolicy;
     }
 }

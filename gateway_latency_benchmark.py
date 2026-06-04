@@ -38,6 +38,23 @@ def parse_args():
     parser.add_argument("--delay-ms", type=int, default=int(os.getenv("BACKEND_DELAY_MS", "0")))
     parser.add_argument("--timeout", type=float, default=float(os.getenv("BENCHMARK_TIMEOUT_SECONDS", "10")))
     parser.add_argument("--output", default=os.getenv("BENCHMARK_OUTPUT", "latency_report.json"))
+    parser.add_argument(
+        "--client-id",
+        default=os.getenv("BENCHMARK_CLIENT_ID", ""),
+        help="Optional value sent as X-Forwarded-For to isolate rate-limit state.",
+    )
+    parser.add_argument(
+        "--warmup-requests",
+        type=int,
+        default=int(os.getenv("BENCHMARK_WARMUP_REQUESTS", "0")),
+        help="Unmeasured warm-up requests sent with a separate warm-up client id.",
+    )
+    parser.add_argument(
+        "--warmup-concurrency",
+        type=int,
+        default=int(os.getenv("BENCHMARK_WARMUP_CONCURRENCY", "0")),
+        help="Warm-up concurrency. Defaults to benchmark concurrency when omitted.",
+    )
     return parser.parse_args()
 
 
@@ -59,14 +76,20 @@ def to_float_header(headers, name):
         return None
 
 
-def call_gateway(url, delay_ms, timeout):
+def request_headers(client_id):
+    if not client_id:
+        return {}
+    return {"X-Forwarded-For": client_id}
+
+
+def call_gateway(url, delay_ms, timeout, client_id):
     params = {}
     if delay_ms > 0:
         params["delayMs"] = delay_ms
 
     started = time.perf_counter()
     try:
-        response = requests.get(url, params=params, timeout=timeout)
+        response = requests.get(url, params=params, headers=request_headers(client_id), timeout=timeout)
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         return {
             "ok": True,
@@ -76,6 +99,8 @@ def call_gateway(url, delay_ms, timeout):
             "backendLatencyMs": to_float_header(response.headers, "X-Backend-Latency-Ms"),
             "rateLimitLatencyMs": to_float_header(response.headers, "X-RateLimit-Latency-Ms"),
             "rateLimitRemaining": response.headers.get("X-RateLimit-Remaining"),
+            "rateLimitReset": response.headers.get("X-RateLimit-Reset"),
+            "retryAfter": response.headers.get("Retry-After"),
         }
     except requests.RequestException as exc:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
@@ -85,6 +110,23 @@ def call_gateway(url, delay_ms, timeout):
             "clientLatencyMs": elapsed_ms,
             "error": str(exc),
         }
+
+
+def run_requests(url, delay_ms, timeout, requests_count, concurrency, client_id):
+    results = []
+    if requests_count <= 0:
+        return results, 0.0
+
+    started = time.perf_counter()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, concurrency)) as executor:
+        futures = [
+            executor.submit(call_gateway, url, delay_ms, timeout, client_id)
+            for _ in range(requests_count)
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            results.append(future.result())
+
+    return results, time.perf_counter() - started
 
 
 def summarize_metric(results, field):
@@ -103,18 +145,27 @@ def summarize_metric(results, field):
 
 def main():
     args = parse_args()
-    started = time.perf_counter()
-    results = []
+    warmup_client_id = f"{args.client_id}-warmup" if args.client_id else ""
+    warmup_concurrency = args.warmup_concurrency or args.concurrency
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.concurrency) as executor:
-        futures = [
-            executor.submit(call_gateway, args.url, args.delay_ms, args.timeout)
-            for _ in range(args.requests)
-        ]
-        for future in concurrent.futures.as_completed(futures):
-            results.append(future.result())
+    if args.warmup_requests > 0:
+        run_requests(
+            args.url,
+            args.delay_ms,
+            args.timeout,
+            args.warmup_requests,
+            warmup_concurrency,
+            warmup_client_id,
+        )
 
-    duration_seconds = time.perf_counter() - started
+    results, duration_seconds = run_requests(
+        args.url,
+        args.delay_ms,
+        args.timeout,
+        args.requests,
+        args.concurrency,
+        args.client_id,
+    )
     status_counts = {}
     for item in results:
         status_counts[str(item["status"])] = status_counts.get(str(item["status"]), 0) + 1
@@ -124,6 +175,9 @@ def main():
         "requests": args.requests,
         "concurrency": args.concurrency,
         "configuredBackendDelayMs": args.delay_ms,
+        "clientId": args.client_id,
+        "warmupRequests": args.warmup_requests,
+        "warmupConcurrency": warmup_concurrency if args.warmup_requests > 0 else 0,
         "durationSeconds": round(duration_seconds, 2),
         "throughputRequestsPerSecond": round(len(results) / duration_seconds, 2) if duration_seconds > 0 else 0,
         "statusCounts": status_counts,

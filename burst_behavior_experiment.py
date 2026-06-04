@@ -35,6 +35,7 @@ Usage examples:
 
 import argparse
 import concurrent.futures
+import hashlib
 import json
 import os
 import statistics
@@ -93,6 +94,10 @@ def parse_args() -> argparse.Namespace:
                         help="Fire all burst requests concurrently (ThreadPoolExecutor) instead of sequentially.")
     parser.add_argument("--multi-strategy", action="store_true",
                         help="Run against all four default gateway ports in one invocation.")
+    parser.add_argument("--client-id",      default=os.getenv("BURST_CLIENT_ID", ""),
+                        help="Optional X-Forwarded-For value for rate-limit state isolation.")
+    parser.add_argument("--client-id-prefix", default=os.getenv("BURST_CLIENT_ID_PREFIX", "burst"),
+                        help="Prefix used when generating a client id automatically.")
     parser.add_argument("--output",         default=os.getenv("BURST_OUTPUT", "reports/burst_behavior.json"))
     parser.add_argument("--output-dir",     default="reports/burst",
                         help="Output directory used when --multi-strategy is active.")
@@ -113,7 +118,17 @@ def to_float_header(headers, name: str):
         return None
 
 
-def call_gateway(url: str, delay_ms: int, timeout: float, phase: str, sequence: int) -> dict:
+def generated_client_id(prefix: str, label: str) -> str:
+    digest = hashlib.sha1(f"{prefix}:{label}:{time.time_ns()}".encode("utf-8")).hexdigest()
+    return f"198.20.{int(digest[0:2], 16)}.{int(digest[2:4], 16)}"
+
+
+def request_headers(client_id: str) -> dict[str, str]:
+    return {"X-Forwarded-For": client_id} if client_id else {}
+
+
+def call_gateway(url: str, delay_ms: int, timeout: float,
+                 phase: str, sequence: int, client_id: str) -> dict:
     params = {}
     if delay_ms > 0:
         params["delayMs"] = delay_ms
@@ -121,7 +136,7 @@ def call_gateway(url: str, delay_ms: int, timeout: float, phase: str, sequence: 
     started    = time.perf_counter()
     wall_start = datetime.now(timezone.utc).isoformat()
     try:
-        response   = requests.get(url, params=params, timeout=timeout)
+        response   = requests.get(url, params=params, headers=request_headers(client_id), timeout=timeout)
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         return {
             "phase":              phase,
@@ -155,19 +170,19 @@ def call_gateway(url: str, delay_ms: int, timeout: float, phase: str, sequence: 
 # ---------------------------------------------------------------------------
 
 def run_burst_sequential(url: str, delay_ms: int, timeout: float,
-                          burst_size: int, phase: str) -> list[dict]:
+                          burst_size: int, phase: str, client_id: str) -> list[dict]:
     return [
-        call_gateway(url, delay_ms, timeout, phase, seq)
+        call_gateway(url, delay_ms, timeout, phase, seq, client_id)
         for seq in range(1, burst_size + 1)
     ]
 
 
 def run_burst_concurrent(url: str, delay_ms: int, timeout: float,
-                          burst_size: int, phase: str) -> list[dict]:
+                          burst_size: int, phase: str, client_id: str) -> list[dict]:
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=burst_size) as executor:
         futures = {
-            executor.submit(call_gateway, url, delay_ms, timeout, phase, seq): seq
+            executor.submit(call_gateway, url, delay_ms, timeout, phase, seq, client_id): seq
             for seq in range(1, burst_size + 1)
         }
         for future in concurrent.futures.as_completed(futures):
@@ -176,10 +191,10 @@ def run_burst_concurrent(url: str, delay_ms: int, timeout: float,
 
 
 def run_burst(url: str, delay_ms: int, timeout: float,
-              burst_size: int, phase: str, concurrent: bool) -> list[dict]:
+              burst_size: int, phase: str, concurrent: bool, client_id: str) -> list[dict]:
     if concurrent:
-        return run_burst_concurrent(url, delay_ms, timeout, burst_size, phase)
-    return run_burst_sequential(url, delay_ms, timeout, burst_size, phase)
+        return run_burst_concurrent(url, delay_ms, timeout, burst_size, phase, client_id)
+    return run_burst_sequential(url, delay_ms, timeout, burst_size, phase, client_id)
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +262,7 @@ def wait_until_boundary(window_seconds: int, pre_boundary_ms: int) -> float:
 # ---------------------------------------------------------------------------
 
 def run_experiment(label: str, url: str, args: argparse.Namespace) -> dict:
+    client_id = args.client_id or generated_client_id(args.client_id_prefix, label)
     slept_seconds = 0.0
     if args.align_to_window:
         print(f"  [align] Waiting for window boundary for '{label}'...")
@@ -256,13 +272,13 @@ def run_experiment(label: str, url: str, args: argparse.Namespace) -> dict:
 
     print(f"  [burst1] Firing before-boundary burst ({args.burst_size} req)...")
     first_burst = run_burst(url, args.delay_ms, args.timeout,
-                             args.burst_size, "before-boundary", args.concurrent)
+                             args.burst_size, "before-boundary", args.concurrent, client_id)
 
     time.sleep(max(0, args.gap_ms) / 1000.0)
 
     print(f"  [burst2] Firing after-boundary burst ({args.burst_size} req)...")
     second_burst = run_burst(url, args.delay_ms, args.timeout,
-                              args.burst_size, "after-boundary", args.concurrent)
+                              args.burst_size, "after-boundary", args.concurrent, client_id)
 
     duration_seconds = time.perf_counter() - started
     records          = first_burst + second_burst
@@ -271,6 +287,7 @@ def run_experiment(label: str, url: str, args: argparse.Namespace) -> dict:
         "generatedAt":            datetime.now(timezone.utc).isoformat(),
         "label":                  label,
         "targetUrl":              url,
+        "clientId":               client_id,
         "configuredBackendDelayMs": args.delay_ms,
         "windowSeconds":          args.window_seconds,
         "burstSize":              args.burst_size,

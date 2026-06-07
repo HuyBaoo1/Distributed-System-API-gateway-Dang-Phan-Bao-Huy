@@ -1,6 +1,5 @@
 .env
 latency_report.json
-reports/
 venv/
 mock-backend-service/venv/
 __pycache__/
@@ -8,3 +7,6 @@ __pycache__/
 target/
 api-gateway/target/
 mock-backend-service/mock-backend-service/target/
+
+.env
+.env.example

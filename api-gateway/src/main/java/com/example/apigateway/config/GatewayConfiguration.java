@@ -3,14 +3,19 @@ package com.example.apigateway.config;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
+import org.springframework.web.client.ResponseErrorHandler;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.IOException;
+import java.time.Duration;
 import java.util.List;
 
 @Configuration
-@EnableConfigurationProperties(RateLimiterProperties.class)
+@EnableConfigurationProperties({RateLimiterProperties.class, BackendProperties.class})
 public class GatewayConfiguration {
 
     private static final String SLIDING_WINDOW_LUA = "local limit = tonumber(ARGV[1])\n" +
@@ -74,8 +79,14 @@ public class GatewayConfiguration {
             "return {tostring(allowed), tostring(math.floor(tokens)), tostring(reset)}";
 
     @Bean
-    public RestTemplate restTemplate() {
-        return new RestTemplate();
+    public RestTemplate restTemplate(BackendProperties properties) {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(Duration.ofMillis(Math.max(1, properties.connectTimeoutMs())));
+        requestFactory.setReadTimeout(Duration.ofMillis(Math.max(1, properties.readTimeoutMs())));
+
+        RestTemplate restTemplate = new RestTemplate(requestFactory);
+        restTemplate.setErrorHandler(new PassthroughResponseErrorHandler());
+        return restTemplate;
     }
 
     @Bean
@@ -94,5 +105,12 @@ public class GatewayConfiguration {
     @SuppressWarnings({"rawtypes", "unchecked"})
     public RedisScript<List> tokenBucketRateLimitScript() {
         return new DefaultRedisScript<>(TOKEN_BUCKET_LUA, List.class);
+    }
+
+    private static class PassthroughResponseErrorHandler implements ResponseErrorHandler {
+        @Override
+        public boolean hasError(ClientHttpResponse response) throws IOException {
+            return false;
+        }
     }
 }

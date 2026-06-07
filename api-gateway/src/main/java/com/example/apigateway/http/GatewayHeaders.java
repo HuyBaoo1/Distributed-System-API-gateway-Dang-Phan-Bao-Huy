@@ -5,6 +5,8 @@ public final class GatewayHeaders {
     public static final String BACKEND_LATENCY_MS = "X-Backend-Latency-Ms";
     public static final String GATEWAY_LATENCY_MS = "X-Gateway-Latency-Ms";
     public static final String RATE_LIMIT_LATENCY_MS = "X-RateLimit-Latency-Ms";
+    public static final String BACKEND_ATTEMPTS = "X-Backend-Attempts";
+    public static final String CIRCUIT_BREAKER_STATE = "X-Circuit-Breaker-State";
     public static final String RATE_LIMIT_LIMIT = "X-RateLimit-Limit";
     public static final String RATE_LIMIT_REMAINING = "X-RateLimit-Remaining";
     public static final String RATE_LIMIT_RESET = "X-RateLimit-Reset";

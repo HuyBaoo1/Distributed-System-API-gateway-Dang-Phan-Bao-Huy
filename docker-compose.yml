@@ -1,5 +1,12 @@
 x-gateway-env: &gateway-env
   BACKEND_BASE_URL: http://mock-backend:8081
+  BACKEND_CONNECT_TIMEOUT_MS: ${BACKEND_CONNECT_TIMEOUT_MS:-500}
+  BACKEND_READ_TIMEOUT_MS: ${BACKEND_READ_TIMEOUT_MS:-2000}
+  BACKEND_MAX_ATTEMPTS: ${BACKEND_MAX_ATTEMPTS:-1}
+  BACKEND_RETRY_BACKOFF_MS: ${BACKEND_RETRY_BACKOFF_MS:-50}
+  BACKEND_CIRCUIT_BREAKER_ENABLED: ${BACKEND_CIRCUIT_BREAKER_ENABLED:-true}
+  BACKEND_CIRCUIT_BREAKER_FAILURE_THRESHOLD: ${BACKEND_CIRCUIT_BREAKER_FAILURE_THRESHOLD:-5}
+  BACKEND_CIRCUIT_BREAKER_RESET_TIMEOUT_MS: ${BACKEND_CIRCUIT_BREAKER_RESET_TIMEOUT_MS:-5000}
   REDIS_HOST: redis
   REDIS_PORT: 6379
   RATE_LIMIT_REQUESTS_PER_MINUTE: ${RATE_LIMIT_REQUESTS_PER_MINUTE:-60}
@@ -18,7 +25,13 @@ x-gateway-common: &gateway-common
     redis:
       condition: service_healthy
     mock-backend:
-      condition: service_started
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/actuator/health/liveness || exit 1"]
+    interval: 10s
+    timeout: 3s
+    retries: 5
+    start_period: 120s
   networks:
     - gateway-network
 
@@ -53,6 +66,12 @@ services:
     ports:
       - "8081:8081"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8081/actuator/health/liveness || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
     networks:
       - gateway-network
 

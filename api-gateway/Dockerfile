@@ -6,7 +6,7 @@ WORKDIR /app
 COPY pom.xml .
 COPY .mvn .mvn
 COPY mvnw mvnw
-RUN chmod +x mvnw && ./mvnw -B dependency:go-offline
+RUN sed -i 's/\r$//' mvnw && chmod +x mvnw && ./mvnw -B dependency:go-offline
 
 # Copy source and build the application.
 COPY src ./src

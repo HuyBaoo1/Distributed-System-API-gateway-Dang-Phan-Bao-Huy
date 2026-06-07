@@ -449,3 +449,21 @@ docker compose up -d
 - `EXPERIMENT_REPORT.md`: template báo cáo kết quả, không có số liệu giả.
 - `REPRODUCIBILITY.md`: checklist tái lập thí nghiệm.
 - `README_APPENDIX.md`: ghi chú diễn giải thêm.
+- `DISTRIBUTED_SYSTEM_PROPERTIES.md`: đánh giá fault tolerance, scalability, reliability, observability, consistency, availability và các giới hạn còn lại.
+
+## 20. Distributed System Property Checks
+
+Kiểm tra health và cấu hình runtime:
+
+```powershell
+curl.exe "http://localhost:8080/actuator/health/liveness"
+curl.exe "http://localhost:8080/actuator/health/readiness"
+curl.exe "http://localhost:8080/internal/system/properties"
+```
+
+Chạy gateway dạng scale-out local qua Nginx load balancer:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.scaled.yml up -d --build gateway-lb
+curl.exe -i "http://localhost:8100/api/v1/hello?delayMs=50"
+```

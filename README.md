@@ -450,6 +450,7 @@ docker compose up -d
 - `REPRODUCIBILITY.md`: checklist tái lập thí nghiệm.
 - `README_APPENDIX.md`: ghi chú diễn giải thêm.
 - `DISTRIBUTED_SYSTEM_PROPERTIES.md`: đánh giá fault tolerance, scalability, reliability, observability, consistency, availability và các giới hạn còn lại.
+- `ui/latency-dashboard/`: dashboard tĩnh để so sánh latency và overhead của các rate limiter từ dữ liệu experiment thật.
 
 ## 20. Distributed System Property Checks
 
@@ -467,3 +468,20 @@ Chạy gateway dạng scale-out local qua Nginx load balancer:
 docker compose -f docker-compose.yml -f docker-compose.scaled.yml up -d --build gateway-lb
 curl.exe -i "http://localhost:8100/api/v1/hello?delayMs=50"
 ```
+
+## 21. Latency Dashboard UI
+
+Mở dashboard:
+
+```powershell
+Invoke-Item .\ui\latency-dashboard\index.html
+```
+
+Sau đó chọn file kết quả thật:
+
+```text
+reports/<run-name>/latency_comparison.csv
+reports/<run-name>/manifest.json
+```
+
+Dashboard không chứa dữ liệu mẫu để tránh kết luận sai khi chưa chạy experiment.

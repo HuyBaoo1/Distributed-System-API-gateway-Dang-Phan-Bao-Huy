@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Latency Rate Limiter Dashboard</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Distributed API Gateway</p>
+        <h1>Latency & Rate Limiter Comparison</h1>
+      </div>
+      <div class="file-control">
+        <input id="dataFile" type="file" accept=".csv,.json">
+        <label for="dataFile">Load CSV/JSON</label>
+      </div>
+    </header>
+
+    <section class="toolbar" aria-label="Dashboard controls">
+      <div class="control-group">
+        <label for="scenarioSelect">Scenario</label>
+        <select id="scenarioSelect" disabled>
+          <option>Chua co du lieu</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label for="sortSelect">Sort by</label>
+        <select id="sortSelect" disabled>
+          <option value="gatewayP95Ms">Gateway p95</option>
+          <option value="rateLimiterP95Ms">Rate limiter p95</option>
+          <option value="clientP95Ms">Client p95</option>
+          <option value="rejectionRate">Rejection rate</option>
+          <option value="throughputRequestsPerSecond">Throughput</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label for="policySelect">Fault policy</label>
+        <select id="policySelect" disabled>
+          <option value="all">All</option>
+        </select>
+      </div>
+      <div class="dataset-status" id="datasetStatus">No dataset loaded</div>
+    </section>
+
+    <section class="summary-grid" aria-label="Summary">
+      <article class="metric-tile">
+        <span class="metric-label">Best gateway p95</span>
+        <strong id="bestGateway">-</strong>
+        <small id="bestGatewayName">-</small>
+      </article>
+      <article class="metric-tile">
+        <span class="metric-label">Lowest rate limiter p95</span>
+        <strong id="bestLimiter">-</strong>
+        <small id="bestLimiterName">-</small>
+      </article>
+      <article class="metric-tile">
+        <span class="metric-label">Lowest rejection</span>
+        <strong id="bestRejection">-</strong>
+        <small id="bestRejectionName">-</small>
+      </article>
+      <article class="metric-tile">
+        <span class="metric-label">Highest throughput</span>
+        <strong id="bestThroughput">-</strong>
+        <small id="bestThroughputName">-</small>
+      </article>
+    </section>
+
+    <section class="comparison-layout">
+      <section class="chart-panel" aria-label="Strategy comparison">
+        <div class="section-heading">
+          <h2>Strategy Difference</h2>
+          <span id="rowCount">0 rows</span>
+        </div>
+        <div id="strategyChart" class="strategy-chart empty">
+          <p>Load `latency_comparison.csv` or `manifest.json` from a real experiment run.</p>
+        </div>
+      </section>
+
+      <aside class="insight-panel" aria-label="Highlights">
+        <div class="section-heading">
+          <h2>Highlights</h2>
+        </div>
+        <ul id="highlightList" class="highlight-list">
+          <li>No measured data loaded.</li>
+        </ul>
+      </aside>
+    </section>
+
+    <section class="table-panel" aria-label="Detailed comparison">
+      <div class="section-heading">
+        <h2>Detailed Metrics</h2>
+        <span id="activeScenario">-</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Target</th>
+              <th>Strategy</th>
+              <th>Policy</th>
+              <th>Gateway p95</th>
+              <th>Rate limiter p95</th>
+              <th>Backend p95</th>
+              <th>Client p95</th>
+              <th>429 rate</th>
+              <th>Throughput</th>
+            </tr>
+          </thead>
+          <tbody id="metricsBody">
+            <tr>
+              <td colspan="9" class="empty-cell">No measured data loaded.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>

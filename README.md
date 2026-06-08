@@ -249,6 +249,8 @@ Chạy smoke test nhỏ trước:
 python run_latency_experiments.py `
   --strategy-matrix `
   --scenarios baseline `
+  --requests 40 `
+  --concurrency 5 `
   --trials 1 `
   --warmup-requests 5 `
   --output-dir reports/smoke

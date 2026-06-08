@@ -1,0 +1,42 @@
+{
+  "targetUrl": "http://localhost:8082/api/v1/hello",
+  "requests": 40,
+  "concurrency": 5,
+  "configuredBackendDelayMs": 0,
+  "clientId": "198.18.136.208",
+  "warmupRequests": 5,
+  "warmupConcurrency": 5,
+  "durationSeconds": 0.26,
+  "throughputRequestsPerSecond": 153.93,
+  "statusCounts": {
+    "200": 40
+  },
+  "metrics": {
+    "clientObserved": {
+      "count": 40,
+      "avgMs": 30.78,
+      "p50Ms": 30.21,
+      "p95Ms": 44.46,
+      "p99Ms": 51.62,
+      "maxMs": 51.62
+    },
+    "gatewayHeader": null,
+    "backendHeader": {
+      "count": 40,
+      "avgMs": 8.13,
+      "p50Ms": 7.38,
+      "p95Ms": 15.84,
+      "p99Ms": 16.51,
+      "maxMs": 16.51
+    },
+    "rateLimiterHeader": {
+      "count": 40,
+      "avgMs": 5.24,
+      "p50Ms": 4.43,
+      "p95Ms": 9.09,
+      "p99Ms": 16.97,
+      "maxMs": 16.97
+    }
+  },
+  "errors": []
+}

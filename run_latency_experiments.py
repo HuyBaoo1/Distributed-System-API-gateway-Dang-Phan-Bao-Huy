@@ -17,6 +17,8 @@ Examples:
 
     python run_latency_experiments.py --strategy-matrix --trials 3 --warmup-requests 20
 
+    python run_latency_experiments.py --strategy-matrix --scenarios baseline --requests 40 --concurrency 5
+
     python run_latency_experiments.py --fault-policy-matrix --strategies redis-fixed-window
 
     python run_latency_experiments.py --strategy-targets redis-fixed-window=http://localhost:8082/api/v1/hello
@@ -152,6 +154,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--internal-report-url", default=os.getenv("GATEWAY_INTERNAL_REPORT_URL", ""))
     parser.add_argument("--skip-internal-report", action="store_true")
     parser.add_argument(
+        "--requests",
+        type=int,
+        default=int(os.getenv("EXPERIMENT_REQUESTS", "0")),
+        help="Override measured requests per selected scenario. Defaults to the scenario definition.",
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=int(os.getenv("EXPERIMENT_CONCURRENCY", "0")),
+        help="Override measured concurrency per selected scenario. Defaults to the scenario definition.",
+    )
+    parser.add_argument(
         "--trials",
         type=int,
         default=int(os.getenv("EXPERIMENT_TRIALS", "1")),
@@ -182,7 +196,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def selected_scenarios(value: str) -> list[Scenario]:
+def selected_scenarios(value: str, requests_override: int = 0, concurrency_override: int = 0) -> list[Scenario]:
     selected = []
     for raw_name in value.split(","):
         name = raw_name.strip()
@@ -190,7 +204,15 @@ def selected_scenarios(value: str) -> list[Scenario]:
             continue
         if name not in DEFAULT_SCENARIOS:
             raise SystemExit(f"Unknown scenario '{name}'. Available: {', '.join(DEFAULT_SCENARIOS)}")
-        selected.append(DEFAULT_SCENARIOS[name])
+        scenario = DEFAULT_SCENARIOS[name]
+        if requests_override > 0 or concurrency_override > 0:
+            scenario = Scenario(
+                scenario.name,
+                scenario.delay_ms,
+                requests_override if requests_override > 0 else scenario.requests,
+                concurrency_override if concurrency_override > 0 else scenario.concurrency,
+            )
+        selected.append(scenario)
     if not selected:
         raise SystemExit("At least one scenario is required.")
     return selected
@@ -482,7 +504,7 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     trials = max(1, args.trials)
-    scenarios = selected_scenarios(args.scenarios)
+    scenarios = selected_scenarios(args.scenarios, args.requests, args.concurrency)
     strategy_targets = build_strategy_targets(args)
 
     print("\n" + "=" * 72)

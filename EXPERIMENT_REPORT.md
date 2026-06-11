@@ -64,14 +64,26 @@ python burst_behavior_experiment.py --multi-strategy --concurrent --align-to-win
 
 ## 5. Kết quả strategy matrix
 
-Điền sau khi chạy `reports/strategy-matrix/manifest.json`.
+Kết quả dưới đây lấy từ dashboard `Latency & Rate Limiter Comparison`, scenario `baseline`, workload 200 request với concurrency 20.
 
 | Strategy | Scenario | Gateway p95 ms | Rate limiter p95 ms | Backend p95 ms | Throughput rps | Rejection rate |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| `in-memory` | `baseline` | TBD | TBD | TBD | TBD | TBD |
-| `redis-fixed-window` | `baseline` | TBD | TBD | TBD | TBD | TBD |
-| `redis-sliding-window` | `baseline` | TBD | TBD | TBD | TBD | TBD |
-| `redis-token-bucket` | `baseline` | TBD | TBD | TBD | TBD | TBD |
+| `redis-sliding-window` | `baseline` | 82.60 | 21.29 | 49.11 | 564.4 | 70.0% |
+| `in-memory` | `baseline` | 252.89 | 22.76 | 119.77 | 306.3 | 70.0% |
+| `redis-token-bucket` | `baseline` | 1114.05 | 963.93 | 93.68 | 131.3 | 69.5% |
+| `redis-fixed-window` | `baseline` | 1355.45 | 1199.77 | 85.54 | 113.7 | 70.0% |
+
+### So sánh thuật toán rate limiter
+
+`redis-sliding-window` cho kết quả tốt nhất trong lần đo baseline: gateway p95 thấp nhất, rate limiter p95 thấp nhất và throughput cao nhất. Với rejection rate khoảng 70%, thuật toán này vẫn chặn phần lớn request vượt quota nhưng không tạo overhead lớn lên gateway. Đây là lựa chọn cân bằng nhất khi cần quota global cho nhiều gateway instance.
+
+`in-memory` đứng thứ hai về latency tổng thể. Rate limiter p95 gần tương đương `redis-sliding-window`, nhưng gateway/client p95 cao hơn. Điểm yếu chính của `in-memory` không nằm ở tốc độ local mà ở tính phân tán: khi scale nhiều gateway instance, mỗi instance giữ bộ đếm riêng nên quota không còn global.
+
+`redis-token-bucket` có rejection rate thấp nhất một chút, 69.5%, nhưng rate limiter p95 lên tới 963.93 ms. Vì backend p95 chỉ 93.68 ms, tail latency chủ yếu đến từ bước kiểm tra quota hoặc Redis. Token bucket vẫn phù hợp workload có burst ngắn, nhưng implementation hiện tại cần kiểm tra Redis latency, Lua script, connection pool và contention.
+
+`redis-fixed-window` là chậm nhất trong bộ số liệu này, với gateway p95 1355.45 ms và rate limiter p95 1199.77 ms. Fixed window thường đơn giản, nhưng có rủi ro boundary burst quanh ranh giới window. Trong kết quả hiện tại, vấn đề nổi bật hơn là overhead rate limiter quá cao so với backend.
+
+Tóm lại, nếu ưu tiên latency và throughput trong môi trường distributed API gateway, `redis-sliding-window` đang là lựa chọn tốt nhất. Nếu ưu tiên đơn giản và chỉ chạy một gateway instance, `in-memory` có thể chấp nhận được. `redis-token-bucket` và `redis-fixed-window` cần tối ưu thêm trước khi dùng cho tải cao.
 
 ## 6. Kết quả fault policy
 
@@ -101,4 +113,8 @@ python burst_behavior_experiment.py --multi-strategy --concurrent --align-to-win
 
 ## 9. Kết luận
 
-Chỉ điền phần này sau khi đã có report thật. Không dùng kết luận định lượng nếu manifest có nhiều lỗi connection hoặc số trial quá ít.
+Với workload 200 request ở scenario `baseline`, `redis-sliding-window` là thuật toán tốt nhất trong bộ số liệu hiện tại: gateway p95 thấp nhất, rate limiter p95 thấp nhất và throughput cao nhất. Điều này cho thấy sliding window đang kiểm soát quota hiệu quả mà không tạo thêm tail latency lớn cho API gateway.
+
+`in-memory` có thể dùng làm baseline đơn giản hoặc môi trường một gateway instance, nhưng không phù hợp nếu cần quota global trong hệ thống phân tán. `redis-token-bucket` và `redis-fixed-window` có overhead rate limiter rất cao trong lần đo này, vì vậy cần tối ưu Redis/script/connection pool trước khi kết luận chúng phù hợp với tải cao.
+
+Kết luận định lượng này nên được xác nhận lại bằng nhiều trial hơn và các scenario `delay-100`, `delay-500`, `overload`, `burst` để tách rõ ảnh hưởng của backend latency, Redis contention và burst traffic.

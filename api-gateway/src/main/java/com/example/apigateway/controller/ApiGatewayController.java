@@ -2,7 +2,9 @@ package com.example.apigateway.controller;
 
 import com.example.apigateway.config.BackendProperties;
 import com.example.apigateway.http.GatewayHeaders;
+import com.example.apigateway.model.GatewayRoute;
 import com.example.apigateway.service.BackendCircuitBreaker;
+import com.example.apigateway.service.GatewayRequestContext;
 import com.example.apigateway.service.LatencyFormatter;
 import com.example.apigateway.service.LatencyMetricsService;
 import org.springframework.http.HttpEntity;
@@ -41,7 +43,7 @@ public class ApiGatewayController {
         this.backendCircuitBreaker = backendCircuitBreaker;
     }
 
-    @RequestMapping("/api/v1/**")
+    @RequestMapping("/**")
     public ResponseEntity<String> forward(HttpServletRequest request,
                                           @RequestBody(required = false) String body) {
         if (!backendCircuitBreaker.allowRequest()) {
@@ -110,7 +112,9 @@ public class ApiGatewayController {
     }
 
     private String buildBackendUrl(HttpServletRequest request) {
-        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(backendProperties.baseUrl())
+        GatewayRoute route = GatewayRequestContext.route(request);
+        String targetUrl = route == null ? backendProperties.baseUrl() : route.targetUrl();
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(targetUrl)
                 .path(request.getRequestURI());
         if (request.getQueryString() != null) {
             builder.query(request.getQueryString());
@@ -125,6 +129,10 @@ public class ApiGatewayController {
             while (headerNames.hasMoreElements()) {
                 String headerName = headerNames.nextElement();
                 if (isHopSpecificHeader(headerName)) {
+                    continue;
+                }
+                if (headerName.equalsIgnoreCase(GatewayHeaders.API_KEY)
+                        || headerName.equalsIgnoreCase("X-Admin-Token")) {
                     continue;
                 }
                 headers.put(headerName, Collections.list(request.getHeaders(headerName)));

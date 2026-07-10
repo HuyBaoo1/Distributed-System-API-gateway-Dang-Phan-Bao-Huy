@@ -49,13 +49,18 @@ def to_float_header(headers, name):
         return None
 
 
+def request_headers():
+    api_key = os.getenv("BENCHMARK_API_KEY") or os.getenv("GATESHIELD_API_KEY")
+    return {"X-API-Key": api_key} if api_key else {}
+
+
 def call_gateway(url, delay_ms, timeout):
     params = {}
     if delay_ms > 0:
         params["delayMs"] = delay_ms
     started = time.perf_counter()
     try:
-        r = requests.get(url, params=params, timeout=timeout)
+        r = requests.get(url, params=params, headers=request_headers(), timeout=timeout)
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         return {
             "ok": True,

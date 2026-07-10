@@ -9,6 +9,11 @@ x-gateway-env: &gateway-env
   BACKEND_CIRCUIT_BREAKER_RESET_TIMEOUT_MS: ${BACKEND_CIRCUIT_BREAKER_RESET_TIMEOUT_MS:-5000}
   REDIS_HOST: redis
   REDIS_PORT: 6379
+  POSTGRES_DB: ${POSTGRES_DB:-gateshield}
+  POSTGRES_USER: ${POSTGRES_USER:-gateshield}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gateshield}
+  SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-gateshield}
+  GATESHIELD_ADMIN_TOKEN: ${GATESHIELD_ADMIN_TOKEN:-change-me}
   RATE_LIMIT_REQUESTS_PER_MINUTE: ${RATE_LIMIT_REQUESTS_PER_MINUTE:-60}
   RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
 
@@ -18,11 +23,11 @@ x-gateway-common: &gateway-common
     context: ./api-gateway
     dockerfile: Dockerfile
   image: api-gateway:latest
-  env_file:
-    - .env
   restart: unless-stopped
   depends_on:
     redis:
+      condition: service_healthy
+    postgres:
       condition: service_healthy
     mock-backend:
       condition: service_healthy
@@ -56,13 +61,30 @@ services:
     networks:
       - gateway-network
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: gateshield-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gateshield}
+      POSTGRES_USER: ${POSTGRES_USER:-gateshield}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gateshield}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gateshield} -d ${POSTGRES_DB:-gateshield}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - gateway-network
+
   mock-backend:
     build:
-      context: ./mock-backend-service/mock-backend-service
+      context: ./mock-backend
       dockerfile: Dockerfile
     image: mock-backend-service:latest
-    env_file:
-      - .env
     ports:
       - "8081:8081"
     restart: unless-stopped
@@ -78,6 +100,7 @@ services:
   # Redis Commander – GUI for inspecting rate-limit keys
   redis-commander:
     image: rediscommander/redis-commander:latest
+    profiles: ["tools"]
     environment:
       REDIS_HOSTS: local:redis:6379
     ports:
@@ -92,9 +115,9 @@ services:
   # Strategy matrix – primary strategies (fail-closed is the default policy)
   # ---------------------------------------------------------------------------
 
-  api-gateway-redis-sliding-window:
+  gateshield:
     <<: *gateway-common
-    container_name: gw-sliding-window
+    container_name: gateshield-gateway
     environment:
       <<: *gateway-env
       RATE_LIMIT_STRATEGY: redis-sliding-window
@@ -105,6 +128,7 @@ services:
   api-gateway-redis-fixed-window:
     <<: *gateway-common
     container_name: gw-fixed-window
+    profiles: ["experiments"]
     environment:
       <<: *gateway-env
       RATE_LIMIT_STRATEGY: redis-fixed-window
@@ -115,6 +139,7 @@ services:
   api-gateway-redis-token-bucket:
     <<: *gateway-common
     container_name: gw-token-bucket
+    profiles: ["experiments"]
     environment:
       <<: *gateway-env
       RATE_LIMIT_STRATEGY: redis-token-bucket
@@ -125,6 +150,7 @@ services:
   api-gateway-in-memory:
     <<: *gateway-common
     container_name: gw-in-memory
+    profiles: ["experiments"]
     environment:
       <<: *gateway-env
       RATE_LIMIT_STRATEGY: in-memory
@@ -145,6 +171,7 @@ services:
   api-gateway-fixed-window-fail-open:
     <<: *gateway-common
     container_name: gw-fixed-window-fail-open
+    profiles: ["experiments"]
     environment:
       <<: *gateway-env
       RATE_LIMIT_STRATEGY: redis-fixed-window
@@ -156,6 +183,7 @@ services:
   api-gateway-fixed-window-local-fallback:
     <<: *gateway-common
     container_name: gw-fixed-window-local-fallback
+    profiles: ["experiments"]
     environment:
       <<: *gateway-env
       RATE_LIMIT_STRATEGY: redis-fixed-window
@@ -167,6 +195,7 @@ services:
   api-gateway-token-bucket-fail-open:
     <<: *gateway-common
     container_name: gw-token-bucket-fail-open
+    profiles: ["experiments"]
     environment:
       <<: *gateway-env
       RATE_LIMIT_STRATEGY: redis-token-bucket
@@ -178,6 +207,7 @@ services:
   api-gateway-token-bucket-local-fallback:
     <<: *gateway-common
     container_name: gw-token-bucket-local-fallback
+    profiles: ["experiments"]
     environment:
       <<: *gateway-env
       RATE_LIMIT_STRATEGY: redis-token-bucket
@@ -189,6 +219,7 @@ services:
   api-gateway-sliding-window-fail-open:
     <<: *gateway-common
     container_name: gw-sliding-window-fail-open
+    profiles: ["experiments"]
     environment:
       <<: *gateway-env
       RATE_LIMIT_STRATEGY: redis-sliding-window
@@ -200,6 +231,7 @@ services:
   api-gateway-sliding-window-local-fallback:
     <<: *gateway-common
     container_name: gw-sliding-window-local-fallback
+    profiles: ["experiments"]
     environment:
       <<: *gateway-env
       RATE_LIMIT_STRATEGY: redis-sliding-window
@@ -207,10 +239,55 @@ services:
     ports:
       - "8095:8080"
 
+  # ---------------------------------------------------------------------------
+  # Scaled deployment profile - two gateway replicas behind Nginx on port 8100
+  # ---------------------------------------------------------------------------
+
+  api-gateway-scaled-a:
+    <<: *gateway-common
+    container_name: gateshield-scaled-a
+    profiles: ["scaled"]
+    environment:
+      <<: *gateway-env
+      RATE_LIMIT_STRATEGY: ${SCALED_RATE_LIMIT_STRATEGY:-redis-sliding-window}
+      RATE_LIMIT_REDIS_FAILURE_POLICY: ${SCALED_RATE_LIMIT_REDIS_FAILURE_POLICY:-local-fallback}
+
+  api-gateway-scaled-b:
+    <<: *gateway-common
+    container_name: gateshield-scaled-b
+    profiles: ["scaled"]
+    environment:
+      <<: *gateway-env
+      RATE_LIMIT_STRATEGY: ${SCALED_RATE_LIMIT_STRATEGY:-redis-sliding-window}
+      RATE_LIMIT_REDIS_FAILURE_POLICY: ${SCALED_RATE_LIMIT_REDIS_FAILURE_POLICY:-local-fallback}
+
+  gateway-lb:
+    image: nginx:1.27-alpine
+    profiles: ["scaled"]
+    ports:
+      - "8100:80"
+    volumes:
+      - ./nginx/gateway-scaled.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      api-gateway-scaled-a:
+        condition: service_healthy
+      api-gateway-scaled-b:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost/actuator/health/liveness || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - gateway-network
+
 networks:
   gateway-network:
     driver: bridge
 
 volumes:
   redis-data:
+    driver: local
+  postgres-data:
     driver: local

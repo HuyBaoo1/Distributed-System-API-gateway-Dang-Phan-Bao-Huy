@@ -33,14 +33,16 @@ public class RedisFixedWindowRateLimiterService implements RateLimiterService {
 
     @Override
     public RateLimitDecision tryConsume(HttpServletRequest request) {
+        int requestLimit = GatewayRequestContext.rateLimitRequests(request, properties);
+        int windowSeconds = GatewayRequestContext.rateLimitWindowSeconds(request, properties);
         long nowMillis = System.currentTimeMillis();
-        long windowMillis = properties.windowSeconds() * 1000L;
+        long windowMillis = windowSeconds * 1000L;
         long windowStartMillis = nowMillis - (nowMillis % windowMillis);
         long ttlMillis = Math.max(1, windowStartMillis + windowMillis - nowMillis);
         String key = buildKey(request, windowStartMillis);
 
         try {
-            List<String> result = executeFixedWindowScript(key, properties.requestsPerMinute(), ttlMillis);
+            List<String> result = executeFixedWindowScript(key, requestLimit, ttlMillis);
             if (result == null || result.size() < 3) {
                 return redisFailureHandler.onRedisFailure(request);
             }
@@ -49,7 +51,7 @@ public class RedisFixedWindowRateLimiterService implements RateLimiterService {
             int remaining = Integer.parseInt(result.get(1));
             long resetMillis = Long.parseLong(result.get(2));
 
-            return new RateLimitDecision(allowed, remaining, millisToCeilSeconds(resetMillis), properties.requestsPerMinute());
+            return new RateLimitDecision(allowed, remaining, millisToCeilSeconds(resetMillis), requestLimit);
         } catch (RuntimeException ex) {
             return redisFailureHandler.onRedisFailure(request);
         }
@@ -66,8 +68,7 @@ public class RedisFixedWindowRateLimiterService implements RateLimiterService {
     }
 
     private String buildKey(HttpServletRequest request, long windowStartMillis) {
-        String clientIp = ClientIdentity.from(request);
-        return String.format("distributed:fixed-window:%s:%s:%d", clientIp, request.getRequestURI(), windowStartMillis);
+        return String.format("%s:%d", GatewayRequestContext.rateLimitKey(request), windowStartMillis);
     }
 
     private long millisToCeilSeconds(long resetMillis) {

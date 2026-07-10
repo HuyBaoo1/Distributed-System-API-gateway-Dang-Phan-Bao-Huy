@@ -33,14 +33,16 @@ public class RedisTokenBucketRateLimiterService implements RateLimiterService {
 
     @Override
     public RateLimitDecision tryConsume(HttpServletRequest request) {
-        String key = buildKey(request);
+        String key = GatewayRequestContext.rateLimitKey(request);
+        int requestLimit = GatewayRequestContext.rateLimitRequests(request, properties);
+        int windowSeconds = GatewayRequestContext.rateLimitWindowSeconds(request, properties);
         long nowMillis = System.currentTimeMillis();
-        long refillPeriodMillis = properties.windowSeconds() * 1000L;
+        long refillPeriodMillis = windowSeconds * 1000L;
 
         try {
             List<String> result = executeTokenBucketScript(
                     key,
-                    properties.requestsPerMinute(),
+                    requestLimit,
                     nowMillis,
                     refillPeriodMillis
             );
@@ -53,7 +55,7 @@ public class RedisTokenBucketRateLimiterService implements RateLimiterService {
             int remaining = Integer.parseInt(result.get(1));
             long resetMillis = Long.parseLong(result.get(2));
 
-            return new RateLimitDecision(allowed, remaining, millisToCeilSeconds(resetMillis), properties.requestsPerMinute());
+            return new RateLimitDecision(allowed, remaining, millisToCeilSeconds(resetMillis), requestLimit);
         } catch (RuntimeException ex) {
             return redisFailureHandler.onRedisFailure(request);
         }
@@ -71,11 +73,6 @@ public class RedisTokenBucketRateLimiterService implements RateLimiterService {
                 String.valueOf(nowMillis),
                 String.valueOf(refillPeriodMillis)
         );
-    }
-
-    private String buildKey(HttpServletRequest request) {
-        String clientIp = ClientIdentity.from(request);
-        return String.format("distributed:token-bucket:%s:%s", clientIp, request.getRequestURI());
     }
 
     private long millisToCeilSeconds(long resetMillis) {

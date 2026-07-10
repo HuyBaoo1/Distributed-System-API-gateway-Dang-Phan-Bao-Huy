@@ -13,17 +13,17 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Component
 public class LocalWindowRateLimiter {
 
-    private final int requestsPerWindow;
-    private final Duration windowDuration;
+    private final RateLimiterProperties properties;
     private final Map<String, Window> windows = new ConcurrentHashMap<>();
 
     public LocalWindowRateLimiter(RateLimiterProperties properties) {
-        this.requestsPerWindow = properties.requestsPerMinute();
-        this.windowDuration = Duration.ofSeconds(properties.windowSeconds());
+        this.properties = properties;
     }
 
     public RateLimitDecision tryConsume(HttpServletRequest request, String namespace) {
         String key = buildKey(request, namespace);
+        int requestsPerWindow = GatewayRequestContext.rateLimitRequests(request, properties);
+        Duration windowDuration = Duration.ofSeconds(GatewayRequestContext.rateLimitWindowSeconds(request, properties));
         Window window = windows.computeIfAbsent(key, ignored -> new Window(Instant.now(), new AtomicInteger(0)));
 
         synchronized (window) {
@@ -44,8 +44,7 @@ public class LocalWindowRateLimiter {
     }
 
     private String buildKey(HttpServletRequest request, String namespace) {
-        String clientIp = ClientIdentity.from(request);
-        return String.format("local:%s:%s:%s", namespace, clientIp, request.getRequestURI());
+        return String.format("local:%s:%s", namespace, GatewayRequestContext.rateLimitKey(request));
     }
 
     private static class Window {

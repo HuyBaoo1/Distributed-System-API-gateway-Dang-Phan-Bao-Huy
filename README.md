@@ -1,489 +1,343 @@
-# Distributed API Gateway Latency Evaluation
+# GateShield
 
-Project này mô phỏng một API Gateway trong distributed system để đo và so sánh ảnh hưởng của:
+GateShield is a self-hosted API gateway and distributed rate limiting platform for microservice environments. It provides a practical MVP for protecting backend services with API key authentication, tenant-aware routing, Redis-backed rate limits, structured request logs, PostgreSQL persistence, and Docker-based local deployment.
 
-- backend latency
-- Redis latency
-- thuật toán rate limiting
-- Redis fault policy
-- burst traffic và overload
+The project started as a distributed API gateway and rate limiter lab, then evolved into a deployable backend platform prototype. The current goal is simple: run GateShield locally, create tenants and routes through an admin API, call backend services through the gateway, and observe authentication and rate limiting behavior end to end.
 
-Mục tiêu chính là tạo dữ liệu thực nghiệm có thể dùng cho báo cáo học thuật, không điền số liệu nếu chưa chạy experiment thật.
+## Core Capabilities
 
-## 1. Kiến trúc
+- API key authentication using `X-API-Key`
+- Tenant/client management
+- Dynamic route management
+- Per-tenant and per-route rate limiting
+- Redis-backed distributed limiter strategies
+- PostgreSQL persistence for tenants, routes, and request logs
+- Protected internal admin API
+- Structured request logging with latency fields
+- Docker Compose deployment with gateway, Redis, PostgreSQL, and mock backend
+- Optional scaled gateway profile behind Nginx
+- Smoke tests and benchmark scripts
 
-Các thành phần chính:
+## Architecture
 
-- `api-gateway`: Spring Boot gateway, proxy `/api/v1/**` sang backend, áp dụng rate limiting và trả latency headers.
-- `mock-backend-service/mock-backend-service`: backend mô phỏng có tham số `delayMs`.
-- `redis`: state store cho các rate limiter phân tán.
-- Python experiment tools:
-  - `gateway_latency_benchmark.py`: benchmark một gateway endpoint.
-  - `run_latency_experiments.py`: chạy ma trận strategy/scenario/fault-policy.
-  - `plot_latency_report.py`: tạo CSV và biểu đồ từ manifest.
-  - `burst_behavior_experiment.py`: đo burst behavior quanh ranh giới window.
-  - `fault_tolerance_experiment.py`: đo hành vi khi Redis healthy/down/recovered.
+```text
+Client
+  |
+  |  X-API-Key
+  v
+GateShield Gateway
+  |
+  |-- Admin API: /admin/**
+  |-- API key validation
+  |-- Route matching
+  |-- Redis rate limiting
+  |-- Request logging
+  |
+  +--> PostgreSQL
+  |      - tenants
+  |      - routes
+  |      - request logs
+  |
+  +--> Redis
+  |      - distributed rate limit state
+  |
+  v
+Mock Backend Service
+```
 
-## 2. Rate Limiter Strategies
+Rate limit keys are scoped by tenant and route:
 
-| Strategy | Mô tả | Port mặc định |
-| --- | --- | ---: |
-| `redis-sliding-window` | Redis sorted set theo timestamp request | `8080` |
-| `redis-fixed-window` | Redis counter theo fixed window, atomic bằng Lua | `8082` |
-| `redis-token-bucket` | Redis hash lưu token và refill timestamp | `8083` |
-| `in-memory` | Local limiter trong từng gateway instance | `8084` |
+```text
+ratelimit:{tenantId}:{routeId}
+```
 
-Redis fault policies:
+## Repository Structure
 
-| Policy | Hành vi khi Redis unreachable |
+```text
+.
+├── api-gateway/          # Spring Boot GateShield gateway
+├── mock-backend/         # Spring Boot mock backend service
+├── scripts/              # Smoke tests and local helpers
+├── docs/                 # Supporting documentation
+├── nginx/                # Nginx config for scaled profile
+├── docker-compose.yml    # Main local deployment file
+├── .env.example          # Example local configuration
+└── README.md
+```
+
+## Requirements
+
+- Docker and Docker Compose
+- Java 17+ only if running Maven tests outside Docker
+- Python 3.10+ only if running benchmark scripts
+
+No paid external APIs are required.
+
+## Quick Start
+
+Start the default local stack:
+
+```bash
+docker compose up --build
+```
+
+Default services:
+
+| Service | URL / Port |
 | --- | --- |
-| `fail-closed` | Reject request để bảo vệ quota |
-| `fail-open` | Allow request để giữ availability |
-| `local-fallback` | Dùng local in-memory limiter tạm thời |
+| GateShield gateway | `http://localhost:8080` |
+| Mock backend | `http://localhost:8081` |
+| PostgreSQL | `localhost:5432` |
+| Redis | `localhost:6379` |
 
-## 3. Latency Headers
+The default Compose configuration uses local development values. For local overrides, copy:
 
-Gateway trả các headers sau để benchmark phân tách latency:
-
-- `X-RateLimit-Latency-Ms`
-- `X-Backend-Latency-Ms`
-- `X-Gateway-Latency-Ms`
-- `X-RateLimit-Remaining`
-- `X-RateLimit-Reset`
-- `Retry-After` khi bị `429`
-
-## 4. Yêu Cầu Môi Trường
-
-Cần có:
-
-- Java 17 hoặc mới hơn
-- Python 3.10 hoặc mới hơn
-- Docker Desktop
-- PowerShell trên Windows
-
-Kiểm tra nhanh:
-
-```powershell
-java -version
-python --version
-docker version
-docker compose version
+```bash
+cp .env.example .env
 ```
 
-## 5. Chuẩn Bị Lần Đầu
+Do not commit `.env` or real secrets.
 
-Đứng tại thư mục root của repo:
+## Environment Variables
 
-```powershell
-cd C:\Users\ASUS\Downloads\Distributed-System-API-Gateway
+Important variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `GATESHIELD_ADMIN_TOKEN` | Token required for protected admin endpoints |
+| `POSTGRES_DB` | PostgreSQL database name |
+| `POSTGRES_USER` | PostgreSQL username |
+| `POSTGRES_PASSWORD` | PostgreSQL password |
+| `REDIS_HOST` | Redis hostname |
+| `REDIS_PORT` | Redis port |
+| `RATE_LIMIT_STRATEGY` | Rate limiter strategy |
+
+Supported rate limiter strategies:
+
+- `redis-sliding-window`
+- `redis-fixed-window`
+- `redis-token-bucket`
+- `in-memory`
+
+## Admin API
+
+Health check:
+
+```bash
+curl http://localhost:8080/admin/health
 ```
 
-Tạo file `.env`:
+Protected admin endpoints require:
 
-```powershell
-Copy-Item .env.example .env
+```text
+X-Admin-Token: <admin-token>
 ```
 
-Cài Python dependencies:
+or:
 
-```powershell
-python -m pip install -r requirements.txt
+```text
+Authorization: Bearer <admin-token>
 ```
 
-Ghi chú:
+Available endpoints:
 
-- `.env` đã nằm trong `.gitignore`, không commit file này.
-- Nếu chỉ chạy Docker Compose local thì có thể giữ `BACKEND_BASE_URL=http://mock-backend:8081`.
-- Nếu chạy gateway bằng Maven ngoài Docker, đổi `BACKEND_BASE_URL=http://localhost:8081`.
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/admin/health` | Admin health check |
+| `GET` | `/admin/routes` | List routes |
+| `POST` | `/admin/routes` | Create route |
+| `PUT` | `/admin/routes/{routeId}` | Update route |
+| `GET` | `/admin/tenants` | List tenants |
+| `POST` | `/admin/tenants` | Create tenant |
+| `PUT` | `/admin/tenants/{tenantId}` | Update tenant |
+| `GET` | `/admin/usage/summary` | Usage summary |
 
-## 6. Chạy Test
+## Create A Tenant
 
-Chạy toàn bộ Maven tests:
-
-```powershell
-.\scripts\run_maven_tests.ps1
+```bash
+curl -s -X POST http://localhost:8080/admin/tenants \
+  -H "X-Admin-Token: change-me" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "tenant-a",
+    "name": "Tenant A",
+    "planName": "free",
+    "enabled": true
+  }'
 ```
 
-Kỳ vọng:
+If `apiKey` is not provided, GateShield generates one and returns it only in the create response. Save that key locally; it is not shown again by list endpoints.
 
-- `api-gateway` unit tests pass.
-- `mock-backend-service` context test pass.
-- Testcontainers Redis sẽ chạy nếu Docker environment được Java/Testcontainers nhận diện.
-- Nếu Testcontainers không nhận Docker, các Redis integration tests sẽ skip; đây là vấn đề môi trường, không phải lỗi compile.
+## Create A Route
 
-## 7. Build Docker Images
-
-Build toàn bộ images từ `docker-compose.yml`:
-
-```powershell
-docker compose build
+```bash
+curl -s -X POST http://localhost:8080/admin/routes \
+  -H "X-Admin-Token: change-me" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "routeId": "mock-api",
+    "pathPattern": "/api/v1/**",
+    "targetUrl": "http://mock-backend:8081",
+    "allowedMethods": ["GET"],
+    "enabled": true,
+    "rateLimitRequests": 5,
+    "rateLimitWindowSeconds": 60
+  }'
 ```
 
-Kiểm tra image:
+This route forwards matching requests to the mock backend service.
 
-```powershell
-docker image ls --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}" | Select-String "api-gateway|mock-backend-service"
+## Call A Protected API
+
+```bash
+curl -i http://localhost:8080/api/v1/hello \
+  -H "X-API-Key: <tenant-api-key>"
 ```
 
-Images chính:
+Expected behavior:
 
-- `api-gateway:latest`
-- `mock-backend-service:latest`
+- Missing API key: `401 Unauthorized`
+- Invalid API key: `401 Unauthorized`
+- Valid API key and matching route: proxied backend response
+- Requests over route limit: `429 Too Many Requests`
 
-## 8. Chạy Hệ Thống Bằng Docker Compose
+## Response Headers
 
-Khởi động toàn bộ stack:
+GateShield adds rate limit and latency metadata to gateway responses:
+
+| Header | Meaning |
+| --- | --- |
+| `X-RateLimit-Limit` | Configured request limit |
+| `X-RateLimit-Remaining` | Remaining requests in current window |
+| `X-RateLimit-Reset` | Seconds until reset |
+| `Retry-After` | Retry delay for rejected requests |
+| `X-Gateway-Latency-Ms` | Gateway processing latency |
+| `X-Backend-Latency-Ms` | Backend call latency |
+| `X-RateLimit-Latency-Ms` | Rate limiter decision latency |
+
+## Expected Project Result
+
+After running the project, a user should be able to:
+
+1. Start GateShield with Docker Compose.
+2. Confirm gateway and admin health endpoints are available.
+3. Create a tenant through the admin API.
+4. Create a route to the mock backend.
+5. Call the backend through GateShield using `X-API-Key`.
+6. See unauthenticated requests blocked with `401`.
+7. See repeated requests eventually blocked with `429`.
+8. Inspect request logs and usage summary through the admin API.
+
+This demonstrates a complete local MVP of an API gateway with authentication, dynamic routing, distributed rate limiting, and persistence.
+
+## Smoke Test
+
+PowerShell:
 
 ```powershell
-docker compose up -d
+powershell -ExecutionPolicy Bypass -File scripts/smoke_test.ps1
 ```
 
-Kiểm tra trạng thái:
+Bash:
 
-```powershell
-docker compose ps
+```bash
+bash scripts/smoke_test.sh
 ```
 
-Xem logs nếu cần:
+The smoke test verifies:
 
-```powershell
-docker compose logs -f redis
-docker compose logs -f mock-backend
-docker compose logs -f api-gateway-redis-sliding-window
+- Gateway health
+- Admin health
+- Tenant creation
+- Route creation
+- Protected proxy request
+- Unauthorized request rejection
+- Rate limit rejection
+
+## Tests
+
+Run gateway tests:
+
+```bash
+cd api-gateway
+./mvnw test
 ```
 
-Dừng hệ thống:
+On Windows, run both Spring Boot modules:
 
 ```powershell
-docker compose down
+powershell -ExecutionPolicy Bypass -File scripts/run_maven_tests.ps1
 ```
 
-Dừng và xóa volume Redis:
+Some Redis tests use Testcontainers and require Docker.
 
-```powershell
-docker compose down -v
+## Optional Compose Profiles
+
+GateShield uses one Compose file: `docker-compose.yml`.
+
+Default deployment:
+
+```bash
+docker compose up --build
 ```
 
-## 9. Kiểm Tra Endpoint
+Scaled deployment with two gateway replicas behind Nginx:
 
-Mock backend:
-
-```powershell
-curl.exe -i "http://localhost:8081/api/v1/hello?delayMs=100"
+```bash
+docker compose --profile scaled up --build
 ```
 
-Gateway endpoints:
+Experiment services for comparing rate limiter strategies:
 
-```powershell
-curl.exe -i "http://localhost:8080/api/v1/hello?delayMs=100"
-curl.exe -i "http://localhost:8082/api/v1/hello?delayMs=100"
-curl.exe -i "http://localhost:8083/api/v1/hello?delayMs=100"
-curl.exe -i "http://localhost:8084/api/v1/hello?delayMs=100"
-```
-
-Internal latency snapshots:
-
-```powershell
-curl.exe "http://localhost:8080/internal/latency/report"
-curl.exe "http://localhost:8082/internal/latency/report"
-curl.exe "http://localhost:8083/internal/latency/report"
-curl.exe "http://localhost:8084/internal/latency/report"
+```bash
+docker compose --profile experiments up --build
 ```
 
 Redis Commander:
 
-```text
-http://localhost:8085
+```bash
+docker compose --profile tools up --build
 ```
 
-## 10. Port Mapping Đầy Đủ
+## Benchmarks
 
-Strategy matrix:
+Benchmark scripts are available for local experiments:
 
-| Target | URL |
-| --- | --- |
-| `redis-sliding-window` | `http://localhost:8080/api/v1/hello` |
-| `redis-fixed-window` | `http://localhost:8082/api/v1/hello` |
-| `redis-token-bucket` | `http://localhost:8083/api/v1/hello` |
-| `in-memory` | `http://localhost:8084/api/v1/hello` |
+- `gateway_latency_benchmark.py`
+- `run_latency_experiments.py`
+- `fault_tolerance_experiment.py`
+- `plot_latency_report.py`
 
-Fault-policy matrix:
+Benchmark requests to protected routes should set:
 
-| Target | URL |
-| --- | --- |
-| `redis-fixed-window@fail-open` | `http://localhost:8090/api/v1/hello` |
-| `redis-fixed-window@local-fallback` | `http://localhost:8091/api/v1/hello` |
-| `redis-token-bucket@fail-open` | `http://localhost:8092/api/v1/hello` |
-| `redis-token-bucket@local-fallback` | `http://localhost:8093/api/v1/hello` |
-| `redis-sliding-window@fail-open` | `http://localhost:8094/api/v1/hello` |
-| `redis-sliding-window@local-fallback` | `http://localhost:8095/api/v1/hello` |
-
-`fail-closed` dùng các port strategy mặc định: `8080`, `8082`, `8083`.
-
-## 11. Benchmark Đơn
-
-Benchmark một endpoint:
-
-```powershell
-python gateway_latency_benchmark.py `
-  --url http://localhost:8080/api/v1/hello `
-  --delay-ms 100 `
-  --requests 300 `
-  --concurrency 30 `
-  --client-id 198.18.0.10 `
-  --warmup-requests 20 `
-  --output reports/single/sliding-delay-100.json
+```bash
+export BENCHMARK_API_KEY="<tenant-api-key>"
 ```
 
-Ý nghĩa một số tham số:
-
-- `--client-id`: gửi qua `X-Forwarded-For` để cô lập rate-limit key.
-- `--warmup-requests`: request warm-up không tính vào kết quả đo chính.
-- `--delay-ms`: delay giả lập ở mock backend.
-
-## 12. Chạy Strategy Matrix
-
-Chạy smoke test nhỏ trước:
-
-```powershell
-python run_latency_experiments.py `
-  --strategy-matrix `
-  --scenarios baseline `
-  --requests 40 `
-  --concurrency 5 `
-  --trials 1 `
-  --warmup-requests 5 `
-  --output-dir reports/smoke
-```
-
-Vẽ biểu đồ smoke test:
-
-```powershell
-python plot_latency_report.py --manifest reports/smoke/manifest.json
-```
-
-Chạy full strategy matrix:
-
-```powershell
-python run_latency_experiments.py `
-  --strategy-matrix `
-  --scenarios baseline,delay-100,delay-500,overload `
-  --trials 3 `
-  --warmup-requests 20 `
-  --output-dir reports/strategy-matrix
-```
-
-Vẽ biểu đồ:
-
-```powershell
-python plot_latency_report.py `
-  --manifest reports/strategy-matrix/manifest.json `
-  --metric gatewayP95Ms `
-  --secondary-metric rejectionRate
-```
-
-Artifacts chính:
-
-- `reports/strategy-matrix/manifest.json`
-- `reports/strategy-matrix/latency_comparison.csv`
-- `reports/strategy-matrix/latency_comparison.png`
-- `reports/strategy-matrix/ratelimiter_overhead.png`
-- `reports/strategy-matrix/latency_components.png`
-- `reports/strategy-matrix/heatmap_gatewayP95Ms.png`
-
-## 13. Chạy Fault-Policy Matrix
-
-So sánh policy khi Redis vẫn healthy:
-
-```powershell
-python run_latency_experiments.py `
-  --fault-policy-matrix `
-  --strategies redis-fixed-window,redis-token-bucket,redis-sliding-window `
-  --scenarios baseline,overload `
-  --trials 3 `
-  --warmup-requests 20 `
-  --output-dir reports/fault-policy
-```
-
-Vẽ biểu đồ:
-
-```powershell
-python plot_latency_report.py --manifest reports/fault-policy/manifest.json
-```
-
-Fault-injection thật: đo khi Redis healthy, Redis down, Redis recovered:
-
-```powershell
-python fault_tolerance_experiment.py `
-  --docker-redis-container gateway-redis `
-  --strategies redis-fixed-window,redis-token-bucket `
-  --requests 100 `
-  --concurrency 20 `
-  --warmup-requests 10 `
-  --output reports/fault-tolerance/report.json
-```
-
-Lưu ý: lệnh này sẽ stop/start container Redis nếu dùng `--docker-redis-container gateway-redis`.
-
-## 14. Chạy Burst Experiment
-
-Chạy cho tất cả strategy:
-
-```powershell
-python burst_behavior_experiment.py `
-  --multi-strategy `
-  --concurrent `
-  --align-to-window `
-  --burst-size 60 `
-  --output-dir reports/burst
-```
-
-Chạy riêng fixed-window:
-
-```powershell
-python burst_behavior_experiment.py `
-  --label redis-fixed-window `
-  --url http://localhost:8082/api/v1/hello `
-  --concurrent `
-  --align-to-window `
-  --burst-size 60 `
-  --output reports/burst/burst-fixed-window.json
-```
-
-## 15. Cách Đọc Kết Quả
-
-Trong report JSON/CSV, các metric quan trọng:
-
-- `clientP95Ms`: latency client quan sát.
-- `gatewayP95Ms`: latency tổng bên trong gateway.
-- `backendP95Ms`: latency gateway proxy sang backend.
-- `rateLimiterP95Ms`: overhead của rate limiter.
-- `throughputRequestsPerSecond`: throughput đo được.
-- `rejectionRate`: tỷ lệ `429`.
-
-Diễn giải nhanh:
-
-- Nếu `rateLimiterP95Ms` cao nhưng `backendP95Ms` thấp, bottleneck nằm ở Redis/rate limiter.
-- Nếu `backendP95Ms` gần bằng `gatewayP95Ms`, backend latency chi phối request.
-- Nếu `clientP95Ms` cao hơn nhiều so với `gatewayP95Ms`, có thể có client-side queueing hoặc network overhead.
-- Fixed window có thể cho boundary burst quanh ranh giới window; dùng burst experiment để chứng minh.
-
-## 16. Điền Báo Cáo
-
-Sau khi có dữ liệu thật:
-
-1. Mở `reports/strategy-matrix/latency_comparison.csv`.
-2. Mở các biểu đồ PNG trong `reports/strategy-matrix/`.
-3. Điền số liệu vào `EXPERIMENT_REPORT.md`.
-4. Không điền kết luận định lượng nếu run có nhiều lỗi connection hoặc chỉ chạy một trial.
-
-## 17. Chạy Local Bằng Maven Nếu Không Dùng Docker
-
-Terminal 1, chạy backend:
-
-```powershell
-$env:BACKEND_BASE_URL="http://localhost:8081"
-cd mock-backend-service\mock-backend-service
-.\mvnw.cmd spring-boot:run
-```
-
-Terminal 2, chạy Redis local hoặc Docker Redis:
-
-```powershell
-docker run --name gateway-redis-local -p 6379:6379 redis:7-alpine
-```
-
-Terminal 3, chạy gateway:
-
-```powershell
-$env:BACKEND_BASE_URL="http://localhost:8081"
-$env:REDIS_HOST="localhost"
-$env:REDIS_PORT="6379"
-$env:RATE_LIMIT_STRATEGY="redis-sliding-window"
-cd api-gateway
-.\mvnw.cmd spring-boot:run
-```
-
-Sau đó gọi:
-
-```powershell
-curl.exe -i "http://localhost:8080/api/v1/hello?delayMs=100"
-```
-
-## 18. Troubleshooting
-
-Nếu port bị chiếm:
-
-```powershell
-netstat -ano | findstr :8080
-```
-
-Nếu muốn reset Redis state:
-
-```powershell
-docker exec gateway-redis redis-cli FLUSHALL
-```
-
-Nếu containers không lên:
-
-```powershell
-docker compose logs --tail=100
-```
-
-Nếu Testcontainers skip trong Maven test:
-
-- Kiểm tra Docker Desktop đang chạy.
-- Kiểm tra `docker version`.
-- Đây không chặn việc build/chạy Docker Compose, nhưng integration tests Redis thật sẽ không chạy trong Maven.
-
-Nếu muốn rebuild sạch:
-
-```powershell
-docker compose down -v
-docker compose build --no-cache
-docker compose up -d
-```
-
-## 19. Tài Liệu Liên Quan
-
-- `PROJECT_PLAN.md`: kế hoạch và hướng nghiên cứu.
-- `LATENCY_EVALUATION.md`: protocol đánh giá latency.
-- `EXPERIMENT_REPORT.md`: template báo cáo kết quả, không có số liệu giả.
-- `REPRODUCIBILITY.md`: checklist tái lập thí nghiệm.
-- `README_APPENDIX.md`: ghi chú diễn giải thêm.
-- `DISTRIBUTED_SYSTEM_PROPERTIES.md`: đánh giá fault tolerance, scalability, reliability, observability, consistency, availability và các giới hạn còn lại.
-- `ui/latency-dashboard/`: dashboard tĩnh để so sánh latency và overhead của các rate limiter từ dữ liệu experiment thật.
-
-## 20. Distributed System Property Checks
-
-Kiểm tra health và cấu hình runtime:
-
-```powershell
-curl.exe "http://localhost:8080/actuator/health/liveness"
-curl.exe "http://localhost:8080/actuator/health/readiness"
-curl.exe "http://localhost:8080/internal/system/properties"
-```
-
-Chạy gateway dạng scale-out local qua Nginx load balancer:
-
-```powershell
-docker compose -f docker-compose.yml -f docker-compose.scaled.yml up -d --build gateway-lb
-curl.exe -i "http://localhost:8100/api/v1/hello?delayMs=50"
-```
-
-## 21. Latency Dashboard UI
-
-Mở dashboard:
-
-```powershell
-Invoke-Item .\ui\latency-dashboard\index.html
-```
-
-Sau đó chọn file kết quả thật:
-
-```text
-reports/<run-name>/latency_comparison.csv
-reports/<run-name>/manifest.json
-```
-
-Dashboard không chứa dữ liệu mẫu để tránh kết luận sai khi chưa chạy experiment.
+See `docs/BENCHMARKS.md` for details.
+
+## Known Limitations
+
+- Route path rewriting is not implemented; the original request path is forwarded.
+- Tenant plan names are stored, but full plan-based quota inheritance is not implemented.
+- API keys use SHA-256 hashing for MVP simplicity.
+- Request logs are persisted synchronously.
+- Admin API authentication is token-based, not full RBAC.
+
+## Production Roadmap
+
+- Route rewrite rules
+- Upstream health policies
+- Admin RBAC and audit logs
+- Tenant plan quota templates
+- API key rotation and scoped keys
+- Async request logging pipeline
+- Prometheus/Grafana dashboards
+- Kubernetes deployment manifests
+
+## Security Notes
+
+- Do not commit `.env`.
+- Do not hardcode real API keys.
+- Replace `GATESHIELD_ADMIN_TOKEN=change-me` before using GateShield outside local development.
+- Store generated tenant API keys securely.

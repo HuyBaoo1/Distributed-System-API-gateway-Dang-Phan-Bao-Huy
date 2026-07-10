@@ -24,15 +24,17 @@ public class RedisFailureHandler {
     public RateLimitDecision onRedisFailure(HttpServletRequest request) {
         String configuredPolicy = properties.redisFailurePolicy();
         String policy = configuredPolicy == null ? "" : configuredPolicy.trim().toLowerCase(Locale.ROOT);
+        int requestLimit = GatewayRequestContext.rateLimitRequests(request, properties);
+        int windowSeconds = GatewayRequestContext.rateLimitWindowSeconds(request, properties);
 
         if (FAIL_OPEN.equals(policy)) {
-            return new RateLimitDecision(true, properties.requestsPerMinute(), 0, properties.requestsPerMinute());
+            return new RateLimitDecision(true, requestLimit, 0, requestLimit);
         }
 
         if (LOCAL_FALLBACK.equals(policy)) {
             return localWindowRateLimiter.tryConsume(request, "redis-fallback");
         }
 
-        return new RateLimitDecision(false, 0, properties.windowSeconds(), properties.requestsPerMinute());
+        return new RateLimitDecision(false, 0, windowSeconds, requestLimit);
     }
 }

@@ -30,7 +30,7 @@ finally {
     Pop-Location
 }
 
-Push-Location (Join-Path $repoRoot "mock-backend-service\mock-backend-service")
+Push-Location (Join-Path $repoRoot "mock-backend")
 try {
     .\mvnw.cmd test
     if ($LASTEXITCODE -ne 0) {

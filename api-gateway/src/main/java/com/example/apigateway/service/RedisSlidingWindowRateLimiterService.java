@@ -34,16 +34,18 @@ public class RedisSlidingWindowRateLimiterService implements RateLimiterService 
 
     @Override
     public RateLimitDecision tryConsume(HttpServletRequest request) {
-        String key = buildKey(request);
+        String key = GatewayRequestContext.rateLimitKey(request);
+        int requestLimit = GatewayRequestContext.rateLimitRequests(request, properties);
+        int windowSeconds = GatewayRequestContext.rateLimitWindowSeconds(request, properties);
         long nowMillis = System.currentTimeMillis();
-        long windowMillis = properties.windowSeconds() * 1000L;
+        long windowMillis = windowSeconds * 1000L;
         long minimumAllowedTimestamp = nowMillis - windowMillis;
         String memberId = UUID.randomUUID().toString();
 
         try {
             List<String> result = executeSlidingWindowScript(
                     key,
-                    properties.requestsPerMinute(),
+                    requestLimit,
                     minimumAllowedTimestamp,
                     nowMillis,
                     memberId,
@@ -59,7 +61,7 @@ public class RedisSlidingWindowRateLimiterService implements RateLimiterService 
             long resetMillis = Long.parseLong(result.get(2));
             long resetSeconds = millisToCeilSeconds(resetMillis);
 
-            return new RateLimitDecision(allowed, remaining, resetSeconds, properties.requestsPerMinute());
+            return new RateLimitDecision(allowed, remaining, resetSeconds, requestLimit);
         } catch (RuntimeException ex) {
             return redisFailureHandler.onRedisFailure(request);
         }
@@ -81,11 +83,6 @@ public class RedisSlidingWindowRateLimiterService implements RateLimiterService 
                 memberId,
                 String.valueOf(windowMillis)
         );
-    }
-
-    private String buildKey(HttpServletRequest request) {
-        String clientIp = ClientIdentity.from(request);
-        return String.format("distributed:rate:%s:%s", clientIp, request.getRequestURI());
     }
 
     private long millisToCeilSeconds(long resetMillis) {

@@ -12,6 +12,8 @@ public final class GatewayHeaders {
     public static final String RATE_LIMIT_RESET = "X-RateLimit-Reset";
     public static final String RETRY_AFTER = "Retry-After";
     public static final String X_FORWARDED_FOR = "X-Forwarded-For";
+    public static final String REQUEST_ID = "X-Request-Id";
+    public static final String API_KEY = "X-API-Key";
 
     private GatewayHeaders() {
     }

@@ -124,7 +124,11 @@ def generated_client_id(prefix: str, label: str) -> str:
 
 
 def request_headers(client_id: str) -> dict[str, str]:
-    return {"X-Forwarded-For": client_id} if client_id else {}
+    headers = {"X-Forwarded-For": client_id} if client_id else {}
+    api_key = os.getenv("BENCHMARK_API_KEY") or os.getenv("GATESHIELD_API_KEY")
+    if api_key:
+        headers["X-API-Key"] = api_key
+    return headers
 
 
 def call_gateway(url: str, delay_ms: int, timeout: float,

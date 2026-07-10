@@ -77,9 +77,13 @@ def to_float_header(headers, name):
 
 
 def request_headers(client_id):
-    if not client_id:
-        return {}
-    return {"X-Forwarded-For": client_id}
+    headers = {}
+    if client_id:
+        headers["X-Forwarded-For"] = client_id
+    api_key = os.getenv("BENCHMARK_API_KEY") or os.getenv("GATESHIELD_API_KEY")
+    if api_key:
+        headers["X-API-Key"] = api_key
+    return headers
 
 
 def call_gateway(url, delay_ms, timeout, client_id):

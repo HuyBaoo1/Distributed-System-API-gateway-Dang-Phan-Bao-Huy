@@ -1,5 +1,0 @@
-targetName,strategy,faultPolicy,scenario,trialCount,durationSeconds,throughputRequestsPerSecond,totalResponses,rejected429,errorCount,rejectionRate,clientP50Ms,clientP95Ms,clientP99Ms,clientMaxMs,gatewayP50Ms,gatewayP95Ms,gatewayP99Ms,backendP95Ms,backendP99Ms,rateLimiterP50Ms,rateLimiterP95Ms,rateLimiterP99Ms
-redis-sliding-window,redis-sliding-window,fail-closed,baseline,1,0.34,117.99,40,0,0,0.0,29.91,101.39,129.35,129.35,,,,16.7,21.89,4.29,11.15,89.65
-redis-fixed-window,redis-fixed-window,fail-closed,baseline,1,0.26,153.93,40,0,0,0.0,30.21,44.46,51.62,51.62,,,,15.84,16.51,4.43,9.09,16.97
-redis-token-bucket,redis-token-bucket,fail-closed,baseline,1,0.31,128.16,40,0,0,0.0,28.38,108.42,116.8,116.8,,,,12.54,13.68,4.07,7.8,11.58
-in-memory,in-memory,fail-closed,baseline,1,0.25,156.96,40,0,0,0.0,27.76,47.55,59.57,59.57,,,,15.05,22.74,0.08,0.3,1.31

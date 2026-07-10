@@ -1,12 +1,33 @@
+# Secrets and local environment
 .env
-latency_report.json
-venv/
-mock-backend-service/venv/
-__pycache__/
-*.pyc
+.env.*
+!.env.example
+
+# Java build output
 target/
 api-gateway/target/
-mock-backend-service/mock-backend-service/target/
+mock-backend/target/
 
-.env
-.env.example
+# Python local environment and caches
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Generated benchmark and runtime output
+reports/
+latency_report.json
+*.log
+logs/
+
+# Local database or compose data
+postgres-data/
+redis-data/
+
+# IDE and OS files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

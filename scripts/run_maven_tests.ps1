@@ -3,14 +3,14 @@ param(
 )
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$fallbackJavaHome = Join-Path $env:USERPROFILE ".jdks\openjdk-22.0.2"
+$fallbackJavaHome = Join-Path $env:USERPROFILE ".jdks\jdk-25\jdk-25.0.2"
 
 if (-not $JavaHome -and (Test-Path -LiteralPath $fallbackJavaHome)) {
     $JavaHome = $fallbackJavaHome
 }
 
 if (-not $JavaHome -or -not (Test-Path -LiteralPath (Join-Path $JavaHome "bin\java.exe"))) {
-    Write-Error "JAVA_HOME is not configured. Install JDK 17+ or pass -JavaHome C:\path\to\jdk."
+    Write-Error "JAVA_HOME is not configured. Install JDK 25+ or pass -JavaHome C:\path\to\jdk."
     exit 1
 }
 

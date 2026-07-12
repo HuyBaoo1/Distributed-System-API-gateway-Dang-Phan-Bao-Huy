@@ -9,13 +9,16 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.web.client.ResponseErrorHandler;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 
 @Configuration
-@EnableConfigurationProperties({RateLimiterProperties.class, BackendProperties.class})
+@EnableConfigurationProperties({RateLimiterProperties.class, BackendProperties.class, CorsProperties.class})
 public class GatewayConfiguration {
 
     private static final String SLIDING_WINDOW_LUA = "local limit = tonumber(ARGV[1])\n" +
@@ -87,6 +90,27 @@ public class GatewayConfiguration {
         RestTemplate restTemplate = new RestTemplate(requestFactory);
         restTemplate.setErrorHandler(new PassthroughResponseErrorHandler());
         return restTemplate;
+    }
+
+    @Bean
+    public WebMvcConfigurer corsConfigurer(CorsProperties properties) {
+        String[] origins = Arrays.stream(properties.allowedOrigins().split(","))
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .toArray(String[]::new);
+        return new WebMvcConfigurer() {
+            @Override
+            public void addCorsMappings(CorsRegistry registry) {
+                registry.addMapping("/**")
+                        .allowedOrigins(origins)
+                        .allowedMethods("GET", "POST", "PUT", "OPTIONS")
+                        .allowedHeaders("*")
+                        .exposedHeaders("X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset",
+                                "Retry-After", "X-Gateway-Latency-Ms", "X-Backend-Latency-Ms",
+                                "X-RateLimit-Latency-Ms", "X-Request-Id")
+                        .allowCredentials(false);
+            }
+        };
     }
 
     @Bean

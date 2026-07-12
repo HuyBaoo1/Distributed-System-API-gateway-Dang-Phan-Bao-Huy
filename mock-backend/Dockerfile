@@ -1,5 +1,5 @@
 # --- Stage 1: Build source into a JAR ---
-FROM maven:3.9.7-eclipse-temurin-17 AS build
+FROM maven:3.9.7-eclipse-temurin-25 AS build
 WORKDIR /app
 
 # Copy maven wrapper and project files first for caching
@@ -13,7 +13,7 @@ COPY src ./src
 RUN mvn -B clean package -DskipTests
 
 # --- Stage 2: Run with minimal JRE image ---
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 WORKDIR /app
 
 # Create non-root user for security

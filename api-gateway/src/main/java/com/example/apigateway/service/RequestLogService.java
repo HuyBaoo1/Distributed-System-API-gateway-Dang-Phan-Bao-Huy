@@ -1,6 +1,7 @@
 package com.example.apigateway.service;
 
 import com.example.apigateway.repository.RequestLogRepository;
+import com.example.apigateway.repository.RequestLogRepository.RequestLogRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,17 @@ public class RequestLogService {
 
     public Map<String, Object> summary() {
         return requestLogRepository.summary();
+    }
+
+    public RequestLogPage recent(int page, int size) {
+        int safeSize = Math.max(1, Math.min(size, 100));
+        int safePage = Math.max(0, page);
+        return new RequestLogPage(
+                safePage,
+                safeSize,
+                requestLogRepository.count(),
+                requestLogRepository.findRecent(safeSize, safePage * safeSize)
+        );
     }
 
     public record RequestLogEntry(
@@ -67,5 +79,8 @@ public class RequestLogService {
             }
             return value.replace("\\", "\\\\").replace("\"", "\\\"");
         }
+    }
+
+    public record RequestLogPage(int page, int size, long total, java.util.List<RequestLogRow> items) {
     }
 }

@@ -68,7 +68,7 @@ ratelimit:{tenantId}:{routeId}
 ## Requirements
 
 - Docker and Docker Compose
-- Java 17+ only if running Maven tests outside Docker
+- Java 25+ only if running Maven tests outside Docker
 - Python 3.10+ only if running benchmark scripts
 
 No paid external APIs are required.
@@ -86,9 +86,10 @@ Default services:
 | Service | URL / Port |
 | --- | --- |
 | GateShield gateway | `http://localhost:8080` |
+| GateShield Console | `http://localhost:3000` |
 | Mock backend | `http://localhost:8081` |
-| PostgreSQL | `localhost:5432` |
-| Redis | `localhost:6379` |
+| PostgreSQL | private Docker network |
+| Redis | private Docker network |
 
 The default Compose configuration uses local development values. For local overrides, copy:
 
@@ -253,6 +254,32 @@ The smoke test verifies:
 - Protected proxy request
 - Unauthorized request rejection
 - Rate limit rejection
+
+## GateShield Console
+
+The repository includes a React admin console for operating GateShield.
+
+Run with Docker:
+
+```bash
+docker compose up --build
+```
+
+Open:
+
+```text
+http://localhost:3000
+```
+
+For frontend development:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+See `docs/FRONTEND.md`.
 
 ## Tests
 

@@ -3,6 +3,7 @@ package com.example.apigateway.controller;
 import com.example.apigateway.model.GatewayRoute;
 import com.example.apigateway.model.Tenant;
 import com.example.apigateway.service.GatewayRouteService;
+import com.example.apigateway.service.LatencyMetricsService;
 import com.example.apigateway.service.RequestLogService;
 import com.example.apigateway.service.TenantService;
 import org.springframework.http.HttpMethod;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -31,13 +33,16 @@ public class AdminController {
     private final GatewayRouteService routeService;
     private final TenantService tenantService;
     private final RequestLogService requestLogService;
+    private final LatencyMetricsService latencyMetricsService;
 
     public AdminController(GatewayRouteService routeService,
                            TenantService tenantService,
-                           RequestLogService requestLogService) {
+                           RequestLogService requestLogService,
+                           LatencyMetricsService latencyMetricsService) {
         this.routeService = routeService;
         this.tenantService = tenantService;
         this.requestLogService = requestLogService;
+        this.latencyMetricsService = latencyMetricsService;
     }
 
     @GetMapping("/health")
@@ -135,6 +140,24 @@ public class AdminController {
     @GetMapping("/usage/summary")
     public Map<String, Object> usageSummary() {
         return requestLogService.summary();
+    }
+
+    @GetMapping("/request-logs")
+    public RequestLogService.RequestLogPage requestLogs(@RequestParam(required = false) Integer page,
+                                                        @RequestParam(required = false) Integer size) {
+        return requestLogService.recent(page == null ? 0 : page, size == null ? 25 : size);
+    }
+
+    @GetMapping("/system/status")
+    public Map<String, Object> systemStatus() {
+        return Map.of(
+                "generatedAt", Instant.now().toString(),
+                "health", health(),
+                "tenants", tenantService.findAll().size(),
+                "routes", routeService.findAll().size(),
+                "usage", requestLogService.summary(),
+                "latency", latencyMetricsService.snapshot()
+        );
     }
 
     public record RouteRequest(

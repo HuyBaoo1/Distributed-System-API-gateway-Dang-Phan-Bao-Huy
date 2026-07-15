@@ -103,6 +103,7 @@ public class ApiGatewayController {
 
         HttpHeaders responseHeaders = new HttpHeaders();
         responseHeaders.putAll(backendResponse.getHeaders());
+        removeHopSpecificResponseHeaders(responseHeaders);
         responseHeaders.set(GatewayHeaders.BACKEND_LATENCY_MS, LatencyFormatter.millis(backendNanos));
         responseHeaders.set(GatewayHeaders.BACKEND_ATTEMPTS, String.valueOf(attempts));
         responseHeaders.set(GatewayHeaders.CIRCUIT_BREAKER_STATE, backendCircuitBreaker.state());
@@ -152,6 +153,18 @@ public class ApiGatewayController {
                 || headerName.equalsIgnoreCase("Proxy-Authorization")
                 || headerName.equalsIgnoreCase("TE")
                 || headerName.equalsIgnoreCase("Trailer");
+    }
+
+    private void removeHopSpecificResponseHeaders(HttpHeaders headers) {
+        headers.remove(HttpHeaders.TRANSFER_ENCODING);
+        headers.remove(HttpHeaders.CONTENT_LENGTH);
+        headers.remove(HttpHeaders.CONNECTION);
+        headers.remove(HttpHeaders.UPGRADE);
+        headers.remove("Keep-Alive");
+        headers.remove("Proxy-Authenticate");
+        headers.remove("Proxy-Authorization");
+        headers.remove("TE");
+        headers.remove("Trailer");
     }
 
     private int maxAttemptsFor(HttpMethod method) {

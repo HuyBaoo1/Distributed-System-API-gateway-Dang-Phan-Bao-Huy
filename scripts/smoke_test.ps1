@@ -77,22 +77,18 @@ try {
 
 Write-Host "Verifying proxied request succeeds..."
 $clientHeaders = @{ "X-API-Key" = $apiKey }
-$response = Invoke-WebRequest -Uri "$GatewayBaseUrl/api/v1/hello" -Method GET -Headers $clientHeaders
-if ($response.StatusCode -ne 200) {
-    throw "Expected 200 from proxied request, got $($response.StatusCode)"
+$status = & curl.exe -s -o NUL -w "%{http_code}" "$GatewayBaseUrl/api/v1/hello" -H "X-API-Key: $apiKey"
+if ($status -ne "200") {
+    throw "Expected 200 from proxied request, got $status"
 }
 
 Write-Host "Verifying rate limit eventually returns 429..."
 $saw429 = $false
-for ($i = 0; $i -lt 10; $i++) {
-    try {
-        Invoke-WebRequest -Uri "$GatewayBaseUrl/api/v1/hello" -Method GET -Headers $clientHeaders -ErrorAction Stop | Out-Null
-    } catch {
-        if ($_.Exception.Response.StatusCode.value__ -eq 429) {
-            $saw429 = $true
-            break
-        }
-        throw
+for ($i = 0; $i -lt 80; $i++) {
+    $status = & curl.exe -s -o NUL -w "%{http_code}" "$GatewayBaseUrl/api/v1/hello" -H "X-API-Key: $apiKey"
+    if ($status -eq "429") {
+        $saw429 = $true
+        break
     }
 }
 

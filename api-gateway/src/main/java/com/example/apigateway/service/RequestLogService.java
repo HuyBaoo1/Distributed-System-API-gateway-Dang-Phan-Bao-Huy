@@ -55,7 +55,8 @@ public class RequestLogService {
             double backendLatencyMs,
             String rateLimitDecision,
             String clientIp,
-            String requestId
+            String requestId,
+            String gatewayInstanceId
     ) {
         private String toJson() {
             return "{"
@@ -69,7 +70,8 @@ public class RequestLogService {
                     + "\"backendLatencyMs\":" + backendLatencyMs + ","
                     + "\"rateLimitDecision\":\"" + escape(rateLimitDecision) + "\","
                     + "\"clientIp\":\"" + escape(clientIp) + "\","
-                    + "\"requestId\":\"" + escape(requestId) + "\""
+                    + "\"requestId\":\"" + escape(requestId) + "\","
+                    + "\"gatewayInstanceId\":\"" + escape(gatewayInstanceId) + "\""
                     + "}";
         }
 

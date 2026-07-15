@@ -31,8 +31,11 @@ create table if not exists request_logs (
     backend_latency_ms double precision not null,
     rate_limit_decision varchar(50) not null,
     client_ip varchar(255),
-    request_id varchar(100)
+    request_id varchar(100),
+    gateway_instance_id varchar(255)
 );
+
+alter table request_logs add column if not exists gateway_instance_id varchar(255);
 
 create index if not exists idx_request_logs_timestamp on request_logs (timestamp);
 create index if not exists idx_request_logs_tenant_route on request_logs (tenant_id, route_id);

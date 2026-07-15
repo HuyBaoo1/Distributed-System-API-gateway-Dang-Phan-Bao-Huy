@@ -25,8 +25,8 @@ public class RequestLogRepository {
         jdbcTemplate.update("""
                 insert into request_logs
                 (timestamp, tenant_id, route_id, method, path, status_code,
-                 gateway_latency_ms, backend_latency_ms, rate_limit_decision, client_ip, request_id)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 gateway_latency_ms, backend_latency_ms, rate_limit_decision, client_ip, request_id, gateway_instance_id)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 Timestamp.from(entry.timestamp()),
                 entry.tenantId(),
@@ -38,7 +38,8 @@ public class RequestLogRepository {
                 entry.backendLatencyMs(),
                 entry.rateLimitDecision(),
                 entry.clientIp(),
-                entry.requestId());
+                entry.requestId(),
+                entry.gatewayInstanceId());
     }
 
     public Map<String, Object> summary() {
@@ -59,7 +60,7 @@ public class RequestLogRepository {
     public List<RequestLogRow> findRecent(int limit, int offset) {
         return jdbcTemplate.query("""
                 select timestamp, tenant_id, route_id, method, path, status_code,
-                       gateway_latency_ms, backend_latency_ms, rate_limit_decision, client_ip, request_id
+                       gateway_latency_ms, backend_latency_ms, rate_limit_decision, client_ip, request_id, gateway_instance_id
                 from request_logs
                 order by timestamp desc
                 limit ? offset ?
@@ -79,7 +80,8 @@ public class RequestLogRepository {
                 rs.getDouble("backend_latency_ms"),
                 rs.getString("rate_limit_decision"),
                 rs.getString("client_ip"),
-                rs.getString("request_id")
+                rs.getString("request_id"),
+                rs.getString("gateway_instance_id")
         );
     }
 
@@ -104,7 +106,8 @@ public class RequestLogRepository {
             double backendLatencyMs,
             String rateLimitDecision,
             String clientIp,
-            String requestId
+            String requestId,
+            String gatewayInstanceId
     ) {
     }
 }

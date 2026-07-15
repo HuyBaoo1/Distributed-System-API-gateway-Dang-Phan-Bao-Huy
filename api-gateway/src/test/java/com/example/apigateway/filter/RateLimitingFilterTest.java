@@ -6,9 +6,12 @@ import com.example.apigateway.model.Tenant;
 import com.example.apigateway.service.GatewayRouteService;
 import com.example.apigateway.service.LatencyMetricsService;
 import com.example.apigateway.service.RateLimitDecision;
+import com.example.apigateway.service.RateLimitMetricsService;
 import com.example.apigateway.service.RateLimiterService;
 import com.example.apigateway.service.RequestLogService;
 import com.example.apigateway.service.TenantService;
+import com.example.apigateway.config.RateLimiterProperties;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -44,6 +47,7 @@ class RateLimitingFilterTest {
         assertThat(response.getHeader(GatewayHeaders.RATE_LIMIT_REMAINING)).isEqualTo("9");
         assertThat(response.getHeader(GatewayHeaders.RATE_LIMIT_LATENCY_MS)).isNotBlank();
         assertThat(response.getHeader(GatewayHeaders.GATEWAY_LATENCY_MS)).isNotBlank();
+        assertThat(response.getHeader(GatewayHeaders.GATEWAY_INSTANCE_ID)).isEqualTo("test-instance");
     }
 
     @Test
@@ -87,6 +91,7 @@ class RateLimitingFilterTest {
                 routeService,
                 tenantService,
                 mock(RateLimiterService.class),
+                testMetricsService(),
                 new LatencyMetricsService(),
                 mock(RequestLogService.class));
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/hello");
@@ -107,8 +112,13 @@ class RateLimitingFilterTest {
                 routeService,
                 tenantService,
                 rateLimiterService,
+                testMetricsService(),
                 new LatencyMetricsService(),
                 mock(RequestLogService.class));
+    }
+
+    private RateLimitMetricsService testMetricsService() {
+        return new RateLimitMetricsService(new SimpleMeterRegistry(), new RateLimiterProperties(), "test-instance");
     }
 
     private GatewayRoute route() {

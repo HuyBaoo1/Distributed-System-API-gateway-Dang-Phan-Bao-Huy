@@ -119,6 +119,7 @@ services:
       <<: *gateway-env
       RATE_LIMIT_STRATEGY: redis-sliding-window
       RATE_LIMIT_REDIS_FAILURE_POLICY: fail-closed
+      GATESHIELD_INSTANCE_ID: gateshield-single
     ports:
       - "8080:8080"
 
@@ -251,7 +252,7 @@ services:
       - "8095:8080"
 
   # ---------------------------------------------------------------------------
-  # Scaled deployment profile - two gateway replicas behind Nginx on port 8100
+  # Scaled deployment profile - three gateway replicas behind Nginx on port 8100
   # ---------------------------------------------------------------------------
 
   api-gateway-scaled-a:
@@ -262,6 +263,7 @@ services:
       <<: *gateway-env
       RATE_LIMIT_STRATEGY: ${SCALED_RATE_LIMIT_STRATEGY:-redis-sliding-window}
       RATE_LIMIT_REDIS_FAILURE_POLICY: ${SCALED_RATE_LIMIT_REDIS_FAILURE_POLICY:-local-fallback}
+      GATESHIELD_INSTANCE_ID: scaled-a
 
   api-gateway-scaled-b:
     <<: *gateway-common
@@ -271,6 +273,17 @@ services:
       <<: *gateway-env
       RATE_LIMIT_STRATEGY: ${SCALED_RATE_LIMIT_STRATEGY:-redis-sliding-window}
       RATE_LIMIT_REDIS_FAILURE_POLICY: ${SCALED_RATE_LIMIT_REDIS_FAILURE_POLICY:-local-fallback}
+      GATESHIELD_INSTANCE_ID: scaled-b
+
+  api-gateway-scaled-c:
+    <<: *gateway-common
+    container_name: gateshield-scaled-c
+    profiles: ["scaled"]
+    environment:
+      <<: *gateway-env
+      RATE_LIMIT_STRATEGY: ${SCALED_RATE_LIMIT_STRATEGY:-redis-sliding-window}
+      RATE_LIMIT_REDIS_FAILURE_POLICY: ${SCALED_RATE_LIMIT_REDIS_FAILURE_POLICY:-local-fallback}
+      GATESHIELD_INSTANCE_ID: scaled-c
 
   gateway-lb:
     image: nginx:1.27-alpine
@@ -284,8 +297,10 @@ services:
         condition: service_healthy
       api-gateway-scaled-b:
         condition: service_healthy
+      api-gateway-scaled-c:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost/actuator/health/liveness || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/actuator/health/liveness || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 5

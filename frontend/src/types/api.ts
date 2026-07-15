@@ -46,6 +46,7 @@ export type RequestLog = {
   rateLimitDecision: string;
   clientIp?: string | null;
   requestId?: string | null;
+  gatewayInstanceId?: string | null;
 };
 
 export type RequestLogPage = {

@@ -47,4 +47,5 @@ python plot_latency_report.py --manifest reports/manifest.json
 
 - Generated files in `reports/` are local artifacts.
 - API calls through GateShield require a tenant API key. For product smoke testing, use `scripts/smoke_test.ps1` or `scripts/smoke_test.sh`.
+- For the three-replica distributed quota proof, use `scripts/distributed_rate_limit_test.py` and `docs/DISTRIBUTED_RATE_LIMITING.md`.
 - The external Redis-provider monitor and unrelated ASR evaluation script were removed from the MVP cleanup.

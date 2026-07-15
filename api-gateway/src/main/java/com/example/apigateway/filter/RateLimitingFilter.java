@@ -9,6 +9,7 @@ import com.example.apigateway.service.GatewayRouteService;
 import com.example.apigateway.service.LatencyFormatter;
 import com.example.apigateway.service.LatencyMetricsService;
 import com.example.apigateway.service.RateLimitDecision;
+import com.example.apigateway.service.RateLimitMetricsService;
 import com.example.apigateway.service.RateLimiterService;
 import com.example.apigateway.service.RequestLogService;
 import com.example.apigateway.service.TenantService;
@@ -41,17 +42,20 @@ public class RateLimitingFilter extends OncePerRequestFilter {
     private final GatewayRouteService routeService;
     private final TenantService tenantService;
     private final RateLimiterService rateLimiterService;
+    private final RateLimitMetricsService rateLimitMetricsService;
     private final LatencyMetricsService latencyMetricsService;
     private final RequestLogService requestLogService;
 
     public RateLimitingFilter(GatewayRouteService routeService,
                               TenantService tenantService,
                               RateLimiterService rateLimiterService,
+                              RateLimitMetricsService rateLimitMetricsService,
                               LatencyMetricsService latencyMetricsService,
                               RequestLogService requestLogService) {
         this.routeService = routeService;
         this.tenantService = tenantService;
         this.rateLimiterService = rateLimiterService;
+        this.rateLimitMetricsService = rateLimitMetricsService;
         this.latencyMetricsService = latencyMetricsService;
         this.requestLogService = requestLogService;
     }
@@ -70,6 +74,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         String requestId = requestId(request);
         request.setAttribute(GatewayRequestContext.REQUEST_ID_ATTRIBUTE, requestId);
         wrappedResponse.setHeader(GatewayHeaders.REQUEST_ID, requestId);
+        wrappedResponse.setHeader(GatewayHeaders.GATEWAY_INSTANCE_ID, rateLimitMetricsService.gatewayInstanceId());
         String rateLimitDecision = RATE_LIMIT_SKIPPED;
 
         Optional<GatewayRoute> route = routeService.match(request.getRequestURI());
@@ -99,6 +104,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         long rateLimiterStartNanos = System.nanoTime();
         RateLimitDecision decision = rateLimiterService.tryConsume(request);
         long rateLimiterNanos = System.nanoTime() - rateLimiterStartNanos;
+        rateLimitMetricsService.record(matchedRoute.routeId(), decision, rateLimiterNanos);
 
         wrappedResponse.setHeader(GatewayHeaders.RATE_LIMIT_LIMIT, String.valueOf(decision.limit()));
         wrappedResponse.setHeader(GatewayHeaders.RATE_LIMIT_REMAINING, String.valueOf(decision.remaining()));
@@ -160,7 +166,8 @@ public class RateLimitingFilter extends OncePerRequestFilter {
                 parseLatencyHeader(response.getHeader(GatewayHeaders.BACKEND_LATENCY_MS)),
                 rateLimitDecision,
                 ClientIdentity.from(request),
-                GatewayRequestContext.requestId(request)
+                GatewayRequestContext.requestId(request),
+                rateLimitMetricsService.gatewayInstanceId()
         ));
         response.copyBodyToResponse();
     }

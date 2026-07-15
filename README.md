@@ -308,7 +308,7 @@ Default deployment:
 docker compose up --build
 ```
 
-Scaled deployment with two gateway replicas behind Nginx:
+Scaled deployment with three gateway replicas behind Nginx:
 
 ```bash
 docker compose --profile scaled up --build
@@ -342,6 +342,15 @@ export BENCHMARK_API_KEY="<tenant-api-key>"
 ```
 
 See `docs/BENCHMARKS.md` for details.
+
+Distributed rate-limit validation:
+
+```bash
+docker compose --profile scaled up --build
+python scripts/distributed_rate_limit_test.py
+```
+
+See `docs/DISTRIBUTED_RATE_LIMITING.md` for the Stage 1 proof workflow.
 
 ## Known Limitations
 

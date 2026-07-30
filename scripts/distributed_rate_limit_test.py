@@ -9,6 +9,8 @@ import statistics
 import sys
 import time
 import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 
 import requests
 
@@ -32,6 +34,8 @@ def parse_args():
     parser.add_argument("--timeout", type=float, default=float(os.getenv("REQUEST_TIMEOUT_SECONDS", "10")))
     parser.add_argument("--allow-overshoot", type=int, default=int(os.getenv("ALLOW_OVERSHOOT", "0")))
     parser.add_argument("--skip-setup", action="store_true", default=os.getenv("SKIP_SETUP", "").lower() == "true")
+    parser.add_argument("--experiment-id", default=os.getenv("EXPERIMENT_ID", ""))
+    parser.add_argument("--output", default=os.getenv("DISTRIBUTED_RATE_LIMIT_OUTPUT", ""))
     return parser.parse_args()
 
 
@@ -89,18 +93,32 @@ def percentile(values, pct):
 
 def call_once(url, api_key, timeout):
     started = time.perf_counter()
+    started_at_utc = datetime.now(timezone.utc).isoformat()
     try:
         response = requests.get(url, headers={"X-API-Key": api_key}, timeout=timeout)
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         return {
+            "startedAtUtc": started_at_utc,
+            "endedAtUtc": datetime.now(timezone.utc).isoformat(),
             "status": response.status_code,
             "latency_ms": elapsed_ms,
             "instance": response.headers.get("X-Gateway-Instance-Id", "unknown"),
             "remaining": response.headers.get("X-RateLimit-Remaining"),
+            "requestId": response.headers.get("X-Request-Id"),
+            "gatewayLatencyMs": response.headers.get("X-Gateway-Latency-Ms"),
+            "backendLatencyMs": response.headers.get("X-Backend-Latency-Ms"),
+            "rateLimitLatencyMs": response.headers.get("X-RateLimit-Latency-Ms"),
         }
     except requests.RequestException as exc:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
-        return {"status": "error", "latency_ms": elapsed_ms, "instance": "unknown", "error": str(exc)}
+        return {
+            "startedAtUtc": started_at_utc,
+            "endedAtUtc": datetime.now(timezone.utc).isoformat(),
+            "status": "error",
+            "latency_ms": elapsed_ms,
+            "instance": "unknown",
+            "error": str(exc),
+        }
 
 
 def run_load(args, api_key):
@@ -164,13 +182,53 @@ def print_summary(summary):
     print(json.dumps(summary, indent=2))
 
 
+def build_report(args, summary, results, started_at_utc):
+    experiment_id = args.experiment_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S_distributed-rate-limit")
+    return {
+        "experimentId": experiment_id,
+        "startedAtUtc": started_at_utc,
+        "endedAtUtc": datetime.now(timezone.utc).isoformat(),
+        "argv": sys.argv,
+        "configuration": {
+            "baseUrl": args.base_url,
+            "adminBaseUrl": args.admin_base_url,
+            "routePath": args.route_path,
+            "routeId": args.route_id,
+            "tenantId": args.tenant_id,
+            "targetUrl": args.target_url,
+            "totalRequests": args.total_requests,
+            "concurrency": args.concurrency,
+            "expectedLimit": args.expected_limit,
+            "windowSeconds": args.window_seconds,
+            "strategy": args.strategy,
+            "replicas": args.replicas,
+            "timeout": args.timeout,
+            "allowOvershoot": args.allow_overshoot,
+            "skipSetup": args.skip_setup,
+        },
+        "summary": summary,
+        "results": results,
+    }
+
+
+def write_report(path, report):
+    if not path:
+        return
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(f"Saved distributed rate-limit report to {output_path}")
+
+
 def main():
     args = parse_args()
+    started_at_utc = datetime.now(timezone.utc).isoformat()
     try:
         api_key = setup(args)
         results = run_load(args, api_key)
         summary = summarize(args, results)
         print_summary(summary)
+        write_report(args.output, build_report(args, summary, results, started_at_utc))
         if summary["unexpectedErrors"] > 0:
             return 2
         if len([item for item in summary["instancesObserved"] if item != "unknown"]) < min(2, args.replicas):

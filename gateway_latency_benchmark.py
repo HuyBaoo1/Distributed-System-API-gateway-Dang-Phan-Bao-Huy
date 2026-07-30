@@ -9,9 +9,11 @@ Examples:
 import argparse
 import concurrent.futures
 import json
+import math
 import os
 import statistics
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -38,6 +40,7 @@ def parse_args():
     parser.add_argument("--delay-ms", type=int, default=int(os.getenv("BACKEND_DELAY_MS", "0")))
     parser.add_argument("--timeout", type=float, default=float(os.getenv("BENCHMARK_TIMEOUT_SECONDS", "10")))
     parser.add_argument("--output", default=os.getenv("BENCHMARK_OUTPUT", "latency_report.json"))
+    parser.add_argument("--experiment-id", default=os.getenv("EXPERIMENT_ID", ""))
     parser.add_argument(
         "--client-id",
         default=os.getenv("BENCHMARK_CLIENT_ID", ""),
@@ -62,7 +65,8 @@ def percentile(values, percent):
     if not values:
         return None
     ordered = sorted(values)
-    index = max(0, min(len(ordered) - 1, round((percent / 100.0) * (len(ordered) - 1))))
+    index = math.ceil((percent / 100.0) * len(ordered)) - 1
+    index = max(0, min(len(ordered) - 1, index))
     return ordered[index]
 
 
@@ -92,16 +96,23 @@ def call_gateway(url, delay_ms, timeout, client_id):
         params["delayMs"] = delay_ms
 
     started = time.perf_counter()
+    started_at_utc = datetime.now(timezone.utc).isoformat()
     try:
         response = requests.get(url, params=params, headers=request_headers(client_id), timeout=timeout)
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         return {
+            "startedAtUtc": started_at_utc,
+            "endedAtUtc": datetime.now(timezone.utc).isoformat(),
             "ok": True,
             "status": response.status_code,
             "clientLatencyMs": elapsed_ms,
             "gatewayLatencyMs": to_float_header(response.headers, "X-Gateway-Latency-Ms"),
             "backendLatencyMs": to_float_header(response.headers, "X-Backend-Latency-Ms"),
             "rateLimitLatencyMs": to_float_header(response.headers, "X-RateLimit-Latency-Ms"),
+            "gatewayInstanceId": response.headers.get("X-Gateway-Instance-Id"),
+            "requestId": response.headers.get("X-Request-Id"),
+            "backendAttempts": response.headers.get("X-Backend-Attempts"),
+            "circuitBreakerState": response.headers.get("X-Circuit-Breaker-State"),
             "rateLimitRemaining": response.headers.get("X-RateLimit-Remaining"),
             "rateLimitReset": response.headers.get("X-RateLimit-Reset"),
             "retryAfter": response.headers.get("Retry-After"),
@@ -109,6 +120,8 @@ def call_gateway(url, delay_ms, timeout, client_id):
     except requests.RequestException as exc:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         return {
+            "startedAtUtc": started_at_utc,
+            "endedAtUtc": datetime.now(timezone.utc).isoformat(),
             "ok": False,
             "status": "error",
             "clientLatencyMs": elapsed_ms,
@@ -149,11 +162,13 @@ def summarize_metric(results, field):
 
 def main():
     args = parse_args()
+    experiment_id = args.experiment_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S_gateway-latency")
     warmup_client_id = f"{args.client_id}-warmup" if args.client_id else ""
     warmup_concurrency = args.warmup_concurrency or args.concurrency
 
+    started_at_utc = datetime.now(timezone.utc).isoformat()
     if args.warmup_requests > 0:
-        run_requests(
+        warmup_results, warmup_duration_seconds = run_requests(
             args.url,
             args.delay_ms,
             args.timeout,
@@ -161,6 +176,8 @@ def main():
             warmup_concurrency,
             warmup_client_id,
         )
+    else:
+        warmup_results, warmup_duration_seconds = [], 0.0
 
     results, duration_seconds = run_requests(
         args.url,
@@ -175,6 +192,9 @@ def main():
         status_counts[str(item["status"])] = status_counts.get(str(item["status"]), 0) + 1
 
     report = {
+        "experimentId": experiment_id,
+        "startedAtUtc": started_at_utc,
+        "endedAtUtc": datetime.now(timezone.utc).isoformat(),
         "targetUrl": args.url,
         "requests": args.requests,
         "concurrency": args.concurrency,
@@ -182,8 +202,10 @@ def main():
         "clientId": args.client_id,
         "warmupRequests": args.warmup_requests,
         "warmupConcurrency": warmup_concurrency if args.warmup_requests > 0 else 0,
+        "warmupDurationSeconds": round(warmup_duration_seconds, 2),
         "durationSeconds": round(duration_seconds, 2),
         "throughputRequestsPerSecond": round(len(results) / duration_seconds, 2) if duration_seconds > 0 else 0,
+        "percentileMethod": "nearest-rank-ceil",
         "statusCounts": status_counts,
         "metrics": {
             "clientObserved": summarize_metric(results, "clientLatencyMs"),
@@ -192,9 +214,13 @@ def main():
             "rateLimiterHeader": summarize_metric(results, "rateLimitLatencyMs"),
         },
         "errors": [item.get("error") for item in results if item.get("error")],
+        "warmupRecords": warmup_results,
+        "records": results,
     }
 
-    Path(args.output).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
     print(f"\nSaved report to {args.output}")
 

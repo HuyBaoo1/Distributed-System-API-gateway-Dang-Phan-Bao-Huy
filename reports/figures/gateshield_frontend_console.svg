@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">GateShield Console frontend interface</title>
+  <desc id="desc">Source-derived illustration of the GateShield React admin console overview page, based on frontend source files.</desc>
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+    <linearGradient id="sidebar" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#111827"/>
+      <stop offset="1" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="pagebg" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#f7f8fa"/>
+      <stop offset="1" stop-color="#f1f4f8"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#pagebg)"/>
+  <rect x="42" y="40" width="1516" height="820" rx="26" fill="#ffffff" filter="url(#shadow)"/>
+
+  <rect x="42" y="40" width="268" height="820" rx="26" fill="url(#sidebar)"/>
+  <rect x="282" y="40" width="28" height="820" fill="#0f172a"/>
+  <rect x="78" y="78" width="42" height="42" rx="9" fill="#315f7d"/>
+  <text x="99" y="105" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="17" font-weight="700" fill="#ffffff">GS</text>
+  <text x="136" y="94" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700" fill="#ffffff">GateShield</text>
+  <text x="136" y="116" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#94a3b8">Admin console</text>
+
+  <g font-family="Segoe UI, Arial, sans-serif" font-size="17" fill="#cbd5e1">
+    <rect x="66" y="160" width="210" height="44" rx="10" fill="#ffffff" opacity="0.12"/>
+    <text x="98" y="188" fill="#ffffff">Overview</text>
+    <text x="98" y="244">Tenants</text>
+    <text x="98" y="300">Routes</text>
+    <text x="98" y="356">Usage</text>
+    <text x="98" y="412">Request logs</text>
+    <text x="98" y="468">System</text>
+    <text x="98" y="524">Guide</text>
+  </g>
+  <g fill="none" stroke="#94a3b8" stroke-width="2" opacity="0.9">
+    <circle cx="80" cy="183" r="7"/>
+    <circle cx="80" cy="239" r="7"/>
+    <path d="M73 296h14M80 289v14"/>
+    <path d="M72 352h16M72 360h16"/>
+    <path d="M73 408h14M73 416h14"/>
+    <path d="M72 464h16v14H72z"/>
+    <path d="M73 520h14M73 528h14M73 536h10"/>
+  </g>
+
+  <rect x="310" y="40" width="1248" height="72" fill="#fbfcfe"/>
+  <line x1="310" y1="112" x2="1558" y2="112" stroke="#d7dfe8"/>
+  <text x="348" y="73" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#5e6c7a">GateShield Console</text>
+  <text x="348" y="96" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700" fill="#14212d">Operations overview</text>
+  <rect x="1260" y="64" width="144" height="28" rx="14" fill="#eef2f6" stroke="#d7dfe8"/>
+  <circle cx="1280" cy="78" r="5" fill="#2f6f4e"/>
+  <text x="1293" y="83" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#14212d">Gateway health</text>
+  <rect x="1420" y="58" width="92" height="40" rx="10" fill="#315f7d"/>
+  <text x="1466" y="83" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700" fill="#ffffff">Sign out</text>
+
+  <text x="348" y="168" font-family="Segoe UI, Arial, sans-serif" font-size="36" font-weight="700" fill="#14212d">Overview</text>
+  <text x="348" y="198" font-family="Segoe UI, Arial, sans-serif" font-size="17" fill="#5e6c7a">Live operational summary from GateShield admin APIs.</text>
+
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <g transform="translate(348 236)">
+      <rect width="184" height="116" rx="14" fill="#ffffff" stroke="#d7dfe8"/>
+      <text x="18" y="34" font-size="15" fill="#5e6c7a">Tenants</text>
+      <text x="18" y="72" font-size="31" font-weight="700" fill="#14212d">--</text>
+      <text x="18" y="98" font-size="13" fill="#5e6c7a">enabled</text>
+    </g>
+    <g transform="translate(550 236)">
+      <rect width="184" height="116" rx="14" fill="#ffffff" stroke="#d7dfe8"/>
+      <text x="18" y="34" font-size="15" fill="#5e6c7a">Active routes</text>
+      <text x="18" y="72" font-size="31" font-weight="700" fill="#14212d">--</text>
+      <text x="18" y="98" font-size="13" fill="#5e6c7a">configured</text>
+    </g>
+    <g transform="translate(752 236)">
+      <rect width="184" height="116" rx="14" fill="#ffffff" stroke="#d7dfe8"/>
+      <text x="18" y="34" font-size="15" fill="#5e6c7a">Total requests</text>
+      <text x="18" y="72" font-size="31" font-weight="700" fill="#14212d">--</text>
+      <text x="18" y="98" font-size="13" fill="#5e6c7a">Persisted logs</text>
+    </g>
+    <g transform="translate(954 236)">
+      <rect width="184" height="116" rx="14" fill="#ffffff" stroke="#d7dfe8"/>
+      <text x="18" y="34" font-size="15" fill="#5e6c7a">Rate limited</text>
+      <text x="18" y="72" font-size="31" font-weight="700" fill="#14212d">--</text>
+      <text x="18" y="98" font-size="13" fill="#5e6c7a">reject/error rate</text>
+    </g>
+    <g transform="translate(1156 236)">
+      <rect width="184" height="116" rx="14" fill="#ffffff" stroke="#d7dfe8"/>
+      <text x="18" y="34" font-size="15" fill="#5e6c7a">Gateway latency</text>
+      <text x="18" y="72" font-size="31" font-weight="700" fill="#14212d">-- ms</text>
+      <text x="18" y="98" font-size="13" fill="#5e6c7a">Average</text>
+    </g>
+    <g transform="translate(1358 236)">
+      <rect width="140" height="116" rx="14" fill="#ffffff" stroke="#d7dfe8"/>
+      <text x="16" y="34" font-size="15" fill="#5e6c7a">Backend</text>
+      <text x="16" y="72" font-size="28" font-weight="700" fill="#14212d">-- ms</text>
+      <text x="16" y="98" font-size="13" fill="#5e6c7a">Average</text>
+    </g>
+  </g>
+
+  <rect x="348" y="386" width="1150" height="350" rx="14" fill="#ffffff" stroke="#d7dfe8"/>
+  <text x="376" y="428" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" fill="#14212d">Recent request activity</text>
+  <text x="376" y="455" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#5e6c7a">Request logs are read from the GateShield admin API.</text>
+
+  <g font-family="Segoe UI, Arial, sans-serif" font-size="14">
+    <rect x="376" y="488" width="1094" height="42" fill="#eef2f6"/>
+    <text x="398" y="515" font-weight="700" fill="#14212d">Time</text>
+    <text x="570" y="515" font-weight="700" fill="#14212d">Route</text>
+    <text x="760" y="515" font-weight="700" fill="#14212d">Path</text>
+    <text x="982" y="515" font-weight="700" fill="#14212d">Status</text>
+    <text x="1126" y="515" font-weight="700" fill="#14212d">Decision</text>
+    <text x="1306" y="515" font-weight="700" fill="#14212d">Latency</text>
+
+    <g fill="#14212d">
+      <text x="398" y="568">2026-07-30</text>
+      <text x="570" y="568" font-family="Consolas, monospace">stage1-distributed</text>
+      <text x="760" y="568" font-family="Consolas, monospace">/api/v1/hello</text>
+      <rect x="982" y="548" width="58" height="28" rx="14" fill="#e5f3ea"/>
+      <text x="1011" y="568" text-anchor="middle" fill="#2f6f4e" font-weight="700">200</text>
+      <text x="1126" y="568">allowed</text>
+      <text x="1306" y="568">gateway ms</text>
+
+      <text x="398" y="624">2026-07-30</text>
+      <text x="570" y="624" font-family="Consolas, monospace">mock-api</text>
+      <text x="760" y="624" font-family="Consolas, monospace">/api/v1/hello</text>
+      <rect x="982" y="604" width="58" height="28" rx="14" fill="#fff3df"/>
+      <text x="1011" y="624" text-anchor="middle" fill="#93611e" font-weight="700">429</text>
+      <text x="1126" y="624">rejected</text>
+      <text x="1306" y="624">gateway ms</text>
+
+      <text x="398" y="680">2026-07-30</text>
+      <text x="570" y="680" font-family="Consolas, monospace">-</text>
+      <text x="760" y="680" font-family="Consolas, monospace">/api/v1/hello</text>
+      <rect x="982" y="660" width="58" height="28" rx="14" fill="#fde8e8"/>
+      <text x="1011" y="680" text-anchor="middle" fill="#9a3b3b" font-weight="700">401</text>
+      <text x="1126" y="680">unauthorized</text>
+      <text x="1306" y="680">gateway ms</text>
+    </g>
+  </g>
+
+  <rect x="348" y="770" width="1150" height="50" rx="12" fill="#eef2f6" stroke="#d7dfe8"/>
+  <text x="376" y="801" font-family="Segoe UI, Arial, sans-serif" font-size="15" fill="#5e6c7a">Source-derived figure: routes and labels come from frontend/src/App.tsx, OverviewPage.tsx, AppLayout.tsx, and docs/FRONTEND.md. Placeholder values avoid inventing live metrics.</text>
+</svg>

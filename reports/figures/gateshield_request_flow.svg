@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1050" viewBox="0 0 1800 1050" role="img" aria-labelledby="title desc">
+  <title id="title">GateShield request processing flow</title>
+  <desc id="desc">Source-grounded sequence diagram for GateShield request handling, API-key authentication, route matching, rate limiting, backend forwarding, and request logging.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#315f7d"/>
+    </marker>
+    <filter id="shadow" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <rect width="1800" height="1050" fill="#f3f5f8"/>
+  <text x="90" y="78" font-family="Segoe UI, Arial, sans-serif" font-size="42" font-weight="700" fill="#14212d">GateShield Request Flow</text>
+  <text x="90" y="114" font-family="Segoe UI, Arial, sans-serif" font-size="18" fill="#5e6c7a">Verified from RateLimitingFilter, TenantService, GatewayRouteService, limiter services, ApiGatewayController, and RequestLogService.</text>
+
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <g transform="translate(90 178)">
+      <rect width="230" height="96" rx="16" fill="#ffffff" stroke="#d7dfe8" filter="url(#shadow)"/>
+      <text x="115" y="42" text-anchor="middle" font-size="22" font-weight="700" fill="#14212d">Client</text>
+      <text x="115" y="70" text-anchor="middle" font-size="15" fill="#5e6c7a">GET /api/v1/hello</text>
+    </g>
+
+    <g transform="translate(430 160)">
+      <rect width="315" height="132" rx="16" fill="#ffffff" stroke="#d7dfe8" filter="url(#shadow)"/>
+      <text x="157" y="39" text-anchor="middle" font-size="22" font-weight="700" fill="#14212d">RateLimitingFilter</text>
+      <text x="26" y="72" font-size="15" fill="#5e6c7a">set X-Request-Id</text>
+      <text x="26" y="98" font-size="15" fill="#5e6c7a">set X-Gateway-Instance-Id</text>
+    </g>
+
+    <g transform="translate(850 158)">
+      <rect width="325" height="136" rx="16" fill="#ffffff" stroke="#d7dfe8" filter="url(#shadow)"/>
+      <text x="162" y="39" text-anchor="middle" font-size="22" font-weight="700" fill="#14212d">Route Selection</text>
+      <text x="26" y="72" font-size="15" fill="#5e6c7a">GatewayRouteService.match</text>
+      <text x="26" y="98" font-size="15" fill="#5e6c7a">enabled AntPathMatcher route</text>
+    </g>
+
+    <g transform="translate(1284 158)">
+      <rect width="340" height="136" rx="16" fill="#ffffff" stroke="#d7dfe8" filter="url(#shadow)"/>
+      <text x="170" y="39" text-anchor="middle" font-size="22" font-weight="700" fill="#14212d">Tenant Authentication</text>
+      <text x="26" y="72" font-size="15" fill="#5e6c7a">TenantService.authenticate</text>
+      <text x="26" y="98" font-size="15" fill="#5e6c7a">header: X-API-Key, hash match</text>
+    </g>
+
+    <g transform="translate(535 420)">
+      <rect width="360" height="152" rx="16" fill="#ffffff" stroke="#d7dfe8" filter="url(#shadow)"/>
+      <text x="180" y="39" text-anchor="middle" font-size="22" font-weight="700" fill="#14212d">Rate Limiter</text>
+      <text x="28" y="72" font-size="15" fill="#5e6c7a">InMemoryRateLimiterService</text>
+      <text x="28" y="98" font-size="15" fill="#5e6c7a">Redis fixed / sliding / token bucket</text>
+      <text x="28" y="124" font-size="15" fill="#5e6c7a">key: tenant + route</text>
+    </g>
+
+    <g transform="translate(1010 420)">
+      <rect width="335" height="152" rx="16" fill="#ffffff" stroke="#d7dfe8" filter="url(#shadow)"/>
+      <text x="168" y="39" text-anchor="middle" font-size="22" font-weight="700" fill="#14212d">Redis Fault Policy</text>
+      <text x="28" y="72" font-size="15" fill="#5e6c7a">RedisFailureHandler</text>
+      <text x="28" y="98" font-size="15" fill="#5e6c7a">fail-open / local-fallback</text>
+      <text x="28" y="124" font-size="15" fill="#5e6c7a">default: fail-closed</text>
+    </g>
+
+    <g transform="translate(415 718)">
+      <rect width="320" height="128" rx="16" fill="#ffffff" stroke="#d7dfe8" filter="url(#shadow)"/>
+      <text x="160" y="39" text-anchor="middle" font-size="22" font-weight="700" fill="#14212d">Rejected Path</text>
+      <text x="28" y="72" font-size="15" fill="#5e6c7a">HTTP 429</text>
+      <text x="28" y="98" font-size="15" fill="#5e6c7a">Retry-After + rate-limit headers</text>
+    </g>
+
+    <g transform="translate(875 718)">
+      <rect width="330" height="128" rx="16" fill="#ffffff" stroke="#d7dfe8" filter="url(#shadow)"/>
+      <text x="165" y="39" text-anchor="middle" font-size="22" font-weight="700" fill="#14212d">Backend Forwarding</text>
+      <text x="28" y="72" font-size="15" fill="#5e6c7a">ApiGatewayController</text>
+      <text x="28" y="98" font-size="15" fill="#5e6c7a">sets X-Backend-Latency-Ms</text>
+    </g>
+
+    <g transform="translate(1360 718)">
+      <rect width="330" height="128" rx="16" fill="#ffffff" stroke="#d7dfe8" filter="url(#shadow)"/>
+      <text x="165" y="39" text-anchor="middle" font-size="22" font-weight="700" fill="#14212d">Request Logging</text>
+      <text x="28" y="72" font-size="15" fill="#5e6c7a">RequestLogService.record</text>
+      <text x="28" y="98" font-size="15" fill="#5e6c7a">status, decision, latencies</text>
+    </g>
+  </g>
+
+  <g fill="none" stroke="#315f7d" stroke-width="4" marker-end="url(#arrow)">
+    <path d="M320 226 H430"/>
+    <path d="M745 226 H850"/>
+    <path d="M1175 226 H1284"/>
+    <path d="M1454 294 C1454 365 900 350 760 420"/>
+    <path d="M895 496 H1010"/>
+    <path d="M710 572 C620 620 574 660 574 718"/>
+    <path d="M810 572 C925 630 1030 652 1040 718"/>
+    <path d="M1205 782 H1360"/>
+    <path d="M735 782 H875"/>
+    <path d="M1525 718 C1550 530 1600 410 1512 294"/>
+  </g>
+
+  <g font-family="Segoe UI, Arial, sans-serif" font-size="15" fill="#315f7d" font-weight="700">
+    <text x="348" y="211">HTTP request</text>
+    <text x="766" y="211">match route</text>
+    <text x="1195" y="211">validate key</text>
+    <text x="898" y="395">invoke limiter</text>
+    <text x="912" y="552">Redis exception path</text>
+    <text x="586" y="648">denied</text>
+    <text x="920" y="654">allowed</text>
+    <text x="1252" y="766">response logged</text>
+  </g>
+
+  <rect x="90" y="910" width="1620" height="82" rx="16" fill="#ffffff" stroke="#d7dfe8"/>
+  <text x="120" y="944" font-family="Segoe UI, Arial, sans-serif" font-size="17" font-weight="700" fill="#14212d">Measurement boundaries</text>
+  <text x="120" y="974" font-family="Segoe UI, Arial, sans-serif" font-size="15" fill="#5e6c7a">Client latency is measured by benchmark scripts. Gateway and rate-limiter latency headers are emitted in RateLimitingFilter. Backend latency exists only after ApiGatewayController forwards to the backend. Client errors/timeouts have no component decomposition.</text>
+</svg>

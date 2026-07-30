@@ -1,0 +1,301 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage[hidelinks]{hyperref}
+\usepackage{array}
+
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\na}{\textit{N/A}}
+\newcommand{\ms}{ms}
+\newcommand{\projecturl}{https://github.com/HuyBaoo1/Distributed-System-API-gateway-Dang-Phan-Bao-Huy}
+
+\title{Tail-Latency Evaluation of Distributed Rate Limiting in GateShield}
+
+\author{
+\IEEEauthorblockN{Dang Phan Bao Huy}
+\IEEEauthorblockA{GateShield MVP API Gateway\\
+Repository-based experimental report}
+}
+
+\begin{document}
+\maketitle
+
+\begin{center}
+\href{\projecturl}{\fbox{GitHub Repository}}
+\quad
+\href{\projecturl/blob/main/README.md}{\fbox{Project README}}
+\quad
+\href{\projecturl/blob/main/GATESHIELD_GUIDE_VI.md}{\fbox{Project Guide}}
+\end{center}
+
+\begin{abstract}
+GateShield is an MVP API gateway that includes API-key authentication, route selection, backend forwarding, request logging, and multiple rate-limiting strategies. This report evaluates how the existing rate-limiting strategies affect p95 and p99 latency under steady load, burst load, backend delay, overload, and Redis failure. The evaluation uses only repository source code and validated benchmark artifacts produced during the Gate 6 analysis phase. The validated evidence set contains a partially valid strategy matrix, a valid burst experiment, and a valid Redis fault-tolerance experiment. The strategy matrix has complete successful-response samples for Redis fixed-window and Redis token-bucket across baseline, delay-100, and overload scenarios; Redis sliding-window has mixed response populations in several cells; the in-memory matrix cells contain only client errors and therefore do not support successful-path strategy comparison. Burst evidence shows rejection-dominated behavior under the active route quota, while Redis fault evidence shows that fail-open and local-fallback policies can preserve completed responses but may also produce large client and rate-limiter tails. The study is limited by local execution, partial strategy-matrix validity, fixed-count concurrent load generation, route quota effects, and lack of statistical confidence intervals.
+\end{abstract}
+
+\section{Introduction}
+GateShield is a repository-scale implementation of an API gateway and distributed rate limiter. The practical research question is not whether a new adaptive limiter can be invented, but how the strategies already implemented in the repository behave in the tail of the latency distribution.
+
+This report makes four contributions. First, it documents the actual request path and measurement boundaries used by GateShield. Second, it summarizes a reproducible benchmark workflow for client-observed, gateway, backend, and rate-limiter latency. Third, it compares the existing limiter strategies where validated samples exist. Fourth, it separates successful responses, rejected responses, server failures, client errors, and timeouts so that p95 and p99 values are not silently mixed across incompatible populations.
+
+The report does not claim that a novel adaptive limiter was implemented. Tail-aware adaptive rate limiting and predictive p99 SLO control remain future work.
+
+\section{System Architecture}
+The architecture description in this section is grounded in the current repository source. The request path starts in \code{api-gateway/src/main/java/com/example/apigateway/filter/RateLimitingFilter.java}, whose \code{doFilterInternal} method assigns a request identifier, emits gateway instance metadata, matches a route, authenticates a tenant, invokes the configured rate limiter, emits rate-limit headers, and rejects denied requests before backend forwarding.
+
+API keys are carried in the \code{X-API-Key} header, defined by \code{GatewayHeaders.API_KEY} in \code{api-gateway/src/main/java/com/example/apigateway/http/GatewayHeaders.java}. Authentication is performed by \code{TenantService.authenticate} in \code{api-gateway/src/main/java/com/example/apigateway/service/TenantService.java}. The service hashes the supplied key and returns only enabled tenants. Tenant creation and API-key generation are exposed through \code{AdminController} and \code{ApiKeyHasher}; plaintext API keys are returned at creation time and stored as hashes.
+
+Route selection is implemented by \code{GatewayRouteService.match} in \code{api-gateway/src/main/java/com/example/apigateway/service/GatewayRouteService.java}. It reads configured routes, filters enabled routes, and matches request paths using Spring's \code{AntPathMatcher}. The authenticated rate-limit key is built by \code{GatewayRequestContext.rateLimitKey} in \code{api-gateway/src/main/java/com/example/apigateway/service/GatewayRequestContext.java}; for authenticated requests it uses tenant and route identity, so client IP headers do not isolate quota in these experiments.
+
+The repository contains four limiter implementations evaluated here: \code{InMemoryRateLimiterService}, \code{RedisFixedWindowRateLimiterService}, \code{RedisSlidingWindowRateLimiterService}, and \code{RedisTokenBucketRateLimiterService}. Redis strategies execute Lua scripts configured in \code{GatewayConfiguration}. Redis failure behavior is centralized in \code{RedisFailureHandler}, which supports \code{fail-open}, \code{local-fallback}, and the default fail-closed behavior. Backend forwarding and backend latency headers are emitted by \code{ApiGatewayController}; therefore backend latency is observable only when a request reaches the backend.
+
+The measurement boundary for client latency is the benchmark client. Gateway and rate-limiter latency headers are emitted by the gateway filter. Backend latency headers are emitted only for forwarded requests. Rejected requests can have gateway and rate-limiter headers but no backend latency. Client errors and timeouts have client latency records but no gateway, backend, or rate-limiter decomposition.
+
+\section{Research Questions}
+The experiments address the following questions:
+
+\begin{itemize}
+\item RQ1: How do existing GateShield rate-limiting strategies affect p95 and p99 latency under baseline load?
+\item RQ2: How do those strategies affect p95 and p99 latency under backend delay and overload?
+\item RQ3: How does burst traffic affect accepted and rejected request latency?
+\item RQ4: How do Redis failure policies affect p95 and p99 latency and error behavior?
+\end{itemize}
+
+RQ1 and RQ2 are partially answered because the strategy matrix is classified as partially valid. RQ3 and RQ4 are better supported by the validated burst and fault-tolerance artifacts, with the caveat that the burst run is dominated by a low active route quota.
+
+\section{Methodology}
+\subsection{Benchmark Provenance}
+All numerical results in this report are copied from \code{reports/phase6_tail_latency_analysis_20260730-162304.md}, which was generated from validated Gate 6 artifacts. The strategy matrix source is \code{reports/manual_strategy_matrix_20260730-153953/strategy-matrix/manifest.json} and its per-trial JSON files. Burst sources are \code{reports/phase4_tail_latency_20260730-145813/burst/burst-*.json}. Fault sources are \code{reports/phase4_tail_latency_20260730-145813/fault-tolerance/report.json} and the raw files referenced by that report.
+
+Unauthenticated strategy-matrix runs under \code{reports/phase4_tail_latency_20260730-135629/} and \code{reports/phase4_tail_latency_20260730-151518/} are excluded from performance evidence. They are mentioned only as invalid preliminary runs that motivated API-key smoke testing. The quota-dominated strategy matrix under \code{reports/phase4_tail_latency_20260730-144046/} is excluded except as a methodology note.
+
+\subsection{Authentication and Route Setup}
+The benchmark became valid only after an authenticated smoke request returned HTTP 200 and gateway, backend, and rate-limiter latency headers. The active request path was \code{/api/v1/hello}. The route and tenant requirements follow directly from \code{RateLimitingFilter.doFilterInternal}: a matching enabled route is required before authentication, and a valid enabled tenant is required before rate limiting and backend forwarding.
+
+\subsection{Workloads and Trials}
+The strategy matrix contains 36 parseable trials and 12 strategy-scenario comparisons. The scenarios are baseline, delay-100, and overload. The burst experiment contains 4 strategy JSON files. The fault experiment contains 3 Redis phases and 27 raw result rows.
+
+Warm-up and trial configuration are defined by \code{run_latency_experiments.py}. The benchmark scripts use fixed-count concurrent execution rather than a paced open-loop arrival process. This matters for tail latency because coordinated omission risk cannot be ruled out from the benchmark implementation.
+
+\subsection{Percentile Method and Populations}
+The validated analysis uses pooled raw samples across trial files for each strategy-scenario cell. Percentiles are computed with a nearest-rank-ceil estimator. Metrics are not trial-level averages. Missing values are represented as \na, not as zero.
+
+This report separates response populations: HTTP 200 successful responses, completed HTTP responses including 200/429/5xx, client errors/timeouts, burst records, and fault rows. These populations must not be merged when interpreting p95 or p99.
+
+\section{Evaluation and Results}
+\subsection{Strategy Matrix Status Distribution}
+Table~\ref{tab:status} shows the response inventory for the manual strategy matrix. The population is all measured records in each strategy-scenario cell.
+
+\begin{table*}[t]
+\centering
+\scriptsize
+\caption{Strategy matrix status distribution. Population: all measured records per strategy and scenario. Source: \code{manual_strategy_matrix_20260730-153953}.}
+\label{tab:status}
+\begin{tabular}{llrrrrrrr}
+\hline
+Strategy & Scenario & Total & HTTP 200 & HTTP 401 & HTTP 429 & HTTP 5xx & Client errors & Timeouts \\
+\hline
+redis-sliding-window & baseline & 600 & 592 & 0 & 7 & 0 & 1 & 1 \\
+redis-sliding-window & delay-100 & 600 & 208 & 0 & 0 & 292 & 100 & 100 \\
+redis-sliding-window & overload & 1500 & 751 & 0 & 2 & 48 & 699 & 699 \\
+redis-fixed-window & baseline & 600 & 600 & 0 & 0 & 0 & 0 & 0 \\
+redis-fixed-window & delay-100 & 600 & 600 & 0 & 0 & 0 & 0 & 0 \\
+redis-fixed-window & overload & 1500 & 1500 & 0 & 0 & 0 & 0 & 0 \\
+redis-token-bucket & baseline & 600 & 600 & 0 & 0 & 0 & 0 & 0 \\
+redis-token-bucket & delay-100 & 600 & 600 & 0 & 0 & 0 & 0 & 0 \\
+redis-token-bucket & overload & 1500 & 1500 & 0 & 0 & 0 & 0 & 0 \\
+in-memory & baseline & 600 & 0 & 0 & 0 & 0 & 600 & 0 \\
+in-memory & delay-100 & 600 & 0 & 0 & 0 & 0 & 600 & 0 \\
+in-memory & overload & 1500 & 0 & 0 & 0 & 0 & 1500 & 0 \\
+\hline
+\end{tabular}
+\end{table*}
+
+\subsection{Successful-Response Latency}
+Table~\ref{tab:success} shows only HTTP 200 responses. Client errors, HTTP 429, and HTTP 5xx responses are excluded.
+
+\begin{table*}[t]
+\centering
+\tiny
+\caption{Successful-path tail latency in milliseconds. Population: HTTP 200 responses only.}
+\label{tab:success}
+\begin{tabular}{llrrrrrrrrrr}
+\hline
+Strategy & Scenario & N & C p50 & C p95 & C p99 & G p95 & G p99 & B p95 & B p99 & RL p95 & RL p99 \\
+\hline
+redis-sliding-window & baseline & 592 & 175.99 & 5853.12 & 9409.65 & 1122.94 & 9117.60 & 775.73 & 3368.09 & 130.51 & 1263.88 \\
+redis-sliding-window & delay-100 & 208 & 150.34 & 213.70 & 4128.87 & 176.53 & 233.54 & 131.17 & 170.88 & 29.19 & 33.97 \\
+redis-sliding-window & overload & 751 & 285.42 & 2266.64 & 2405.69 & 241.36 & 348.32 & 190.41 & 293.93 & 43.83 & 62.16 \\
+redis-fixed-window & baseline & 600 & 121.59 & 280.91 & 920.96 & 184.31 & 261.19 & 64.30 & 113.27 & 100.84 & 185.19 \\
+redis-fixed-window & delay-100 & 600 & 230.67 & 525.82 & 621.89 & 287.44 & 381.26 & 219.75 & 289.45 & 68.66 & 132.89 \\
+redis-fixed-window & overload & 1500 & 279.30 & 542.49 & 849.89 & 278.99 & 327.43 & 179.27 & 201.68 & 121.42 & 179.92 \\
+redis-token-bucket & baseline & 600 & 120.41 & 410.59 & 3657.97 & 289.71 & 3282.21 & 68.74 & 1328.70 & 143.73 & 1881.80 \\
+redis-token-bucket & delay-100 & 600 & 169.24 & 278.65 & 324.18 & 204.10 & 264.73 & 129.72 & 146.65 & 73.19 & 117.53 \\
+redis-token-bucket & overload & 1500 & 324.90 & 611.35 & 705.85 & 371.94 & 474.57 & 168.46 & 221.10 & 160.74 & 251.18 \\
+in-memory & baseline & 0 & \na & \na & \na & \na & \na & \na & \na & \na & \na \\
+in-memory & delay-100 & 0 & \na & \na & \na & \na & \na & \na & \na & \na & \na \\
+in-memory & overload & 0 & \na & \na & \na & \na & \na & \na & \na & \na & \na \\
+\hline
+\end{tabular}
+\end{table*}
+
+Within the partial strategy evidence, the lowest baseline successful-path client p99 is redis-fixed-window at 920.96~\ms. The highest baseline successful-path client p99 is redis-sliding-window at 9409.65~\ms. These observations do not imply a universal ranking because the matrix is incomplete and some cells include mixed failures or only client errors.
+
+\subsection{Completed HTTP Latency}
+Table~\ref{tab:completed} includes completed HTTP responses, including HTTP 200, HTTP 429, and HTTP 5xx, while excluding client errors. This population is useful for understanding the latency of gateway responses but should not be interpreted as successful-path latency.
+
+\begin{table*}[t]
+\centering
+\tiny
+\caption{Completed HTTP tail latency in milliseconds. Population: completed HTTP responses including 200, 429, and 5xx; client errors excluded.}
+\label{tab:completed}
+\begin{tabular}{llrrrrrrrrrr}
+\hline
+Strategy & Scenario & N & C p50 & C p95 & C p99 & G p95 & G p99 & B p95 & B p99 & RL p95 & RL p99 \\
+\hline
+redis-sliding-window & baseline & 599 & 177.57 & 8301.33 & 9491.96 & 4207.71 & 9334.57 & 775.73 & 3368.09 & 153.56 & 9196.76 \\
+redis-sliding-window & delay-100 & 500 & 141.90 & 1193.46 & 4076.01 & 141.45 & 217.67 & 123.36 & 168.47 & 46.88 & 64.28 \\
+redis-sliding-window & overload & 801 & 293.55 & 8074.52 & 9143.97 & 427.32 & 2963.77 & 188.81 & 293.93 & 164.61 & 2274.14 \\
+redis-fixed-window & baseline & 600 & 121.59 & 280.91 & 920.96 & 184.31 & 261.19 & 64.30 & 113.27 & 100.84 & 185.19 \\
+redis-fixed-window & delay-100 & 600 & 230.67 & 525.82 & 621.89 & 287.44 & 381.26 & 219.75 & 289.45 & 68.66 & 132.89 \\
+redis-fixed-window & overload & 1500 & 279.30 & 542.49 & 849.89 & 278.99 & 327.43 & 179.27 & 201.68 & 121.42 & 179.92 \\
+redis-token-bucket & baseline & 600 & 120.41 & 410.59 & 3657.97 & 289.71 & 3282.21 & 68.74 & 1328.70 & 143.73 & 1881.80 \\
+redis-token-bucket & delay-100 & 600 & 169.24 & 278.65 & 324.18 & 204.10 & 264.73 & 129.72 & 146.65 & 73.19 & 117.53 \\
+redis-token-bucket & overload & 1500 & 324.90 & 611.35 & 705.85 & 371.94 & 474.57 & 168.46 & 221.10 & 160.74 & 251.18 \\
+in-memory & baseline & 0 & \na & \na & \na & \na & \na & \na & \na & \na & \na \\
+in-memory & delay-100 & 0 & \na & \na & \na & \na & \na & \na & \na & \na & \na \\
+in-memory & overload & 0 & \na & \na & \na & \na & \na & \na & \na & \na & \na \\
+\hline
+\end{tabular}
+\end{table*}
+
+\subsection{Client Errors and Timeouts}
+Table~\ref{tab:errors} isolates client errors and timeouts. These records have client latency values but no gateway, backend, or rate-limiter decomposition.
+
+\begin{table*}[t]
+\centering
+\scriptsize
+\caption{Client-error latency in milliseconds. Population: client errors and timeouts only.}
+\label{tab:errors}
+\begin{tabular}{llrrrrr}
+\hline
+Strategy & Scenario & Errors & Client p50 & Client p95 & Client p99 & Client max \\
+\hline
+redis-sliding-window & baseline & 1 & 10256.45 & 10256.45 & 10256.45 & 10256.45 \\
+redis-sliding-window & delay-100 & 100 & 10036.22 & 10055.92 & 10062.81 & 10064.70 \\
+redis-sliding-window & overload & 699 & 10031.32 & 10059.33 & 10079.67 & 10122.45 \\
+redis-fixed-window & baseline & 0 & \na & \na & \na & \na \\
+redis-fixed-window & delay-100 & 0 & \na & \na & \na & \na \\
+redis-fixed-window & overload & 0 & \na & \na & \na & \na \\
+redis-token-bucket & baseline & 0 & \na & \na & \na & \na \\
+redis-token-bucket & delay-100 & 0 & \na & \na & \na & \na \\
+redis-token-bucket & overload & 0 & \na & \na & \na & \na \\
+in-memory & baseline & 600 & 52.65 & 100.15 & 126.61 & 153.34 \\
+in-memory & delay-100 & 600 & 52.88 & 83.45 & 99.85 & 179.73 \\
+in-memory & overload & 1500 & 122.62 & 236.39 & 274.53 & 322.65 \\
+\hline
+\end{tabular}
+\end{table*}
+
+\subsection{Burst Behavior}
+Table~\ref{tab:burst} summarizes the validated burst run. The active route quota was low, so this result primarily characterizes rejection behavior rather than backend successful-path capacity.
+
+\begin{table}[t]
+\centering
+\scriptsize
+\caption{Burst results in milliseconds. Population: all burst records per strategy.}
+\label{tab:burst}
+\begin{tabular}{lrrrrrrr}
+\hline
+Strategy & Count & Accepted & 429 & Rej. rate & p50 & p95 & p99 \\
+\hline
+in-memory & 120 & 12 & 108 & 0.90 & 176.25 & 328.99 & 339.23 \\
+redis-fixed-window & 120 & 25 & 95 & 0.79 & 549.25 & 860.39 & 879.16 \\
+redis-sliding-window & 120 & 11 & 109 & 0.91 & 92.22 & 257.20 & 266.26 \\
+redis-token-bucket & 120 & 12 & 108 & 0.90 & 1254.06 & 1505.14 & 1511.57 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Redis Fault Tolerance}
+Table~\ref{tab:fault} summarizes the validated fault-tolerance run. Each row is the summary emitted by \code{fault_tolerance_experiment.py}; the embedded raw paths are in \code{reports/phase4_tail_latency_20260730-145813/fault-tolerance/report.json}.
+
+\begin{table*}[t]
+\centering
+\tiny
+\caption{Redis fault-tolerance latency in milliseconds. Population: each row is one fault experiment summary.}
+\label{tab:fault}
+\begin{tabular}{lllrrrrrrr}
+\hline
+Phase & Strategy & Policy & Resp. & 429 & Err. & C p95 & C p99 & G p99 & RL p99 \\
+\hline
+redis-healthy & redis-fixed-window & fail-closed & 100 & 88 & 0 & 256.86 & 296.72 & 205.17 & 59.32 \\
+redis-healthy & redis-fixed-window & fail-open & 100 & 80 & 20 & 5034.69 & 5038.20 & 659.99 & 525.82 \\
+redis-healthy & redis-fixed-window & local-fallback & 100 & 80 & 20 & 5059.67 & 5073.92 & 1674.07 & 1578.39 \\
+redis-healthy & redis-token-bucket & fail-closed & 100 & 100 & 0 & 378.24 & 415.65 & 163.23 & 81.70 \\
+redis-healthy & redis-token-bucket & fail-open & 100 & 0 & 20 & 5042.39 & 5051.19 & 1201.05 & 128.42 \\
+redis-healthy & redis-token-bucket & local-fallback & 100 & 80 & 20 & 5023.79 & 5036.86 & 157.82 & 137.69 \\
+redis-healthy & redis-sliding-window & fail-closed & 100 & 89 & 0 & 919.65 & 1027.31 & 830.97 & 58.81 \\
+redis-healthy & redis-sliding-window & fail-open & 100 & 100 & 0 & 4999.42 & 5018.87 & 4389.62 & 2880.31 \\
+redis-healthy & redis-sliding-window & local-fallback & 100 & 80 & 20 & 5043.09 & 5053.66 & 3902.76 & 3662.90 \\
+redis-down & redis-fixed-window & fail-closed & 100 & 100 & 0 & 2613.12 & 2654.16 & 2405.45 & 2163.17 \\
+redis-down & redis-fixed-window & fail-open & 100 & 0 & 0 & 3066.99 & 3093.44 & 2932.25 & 2048.44 \\
+redis-down & redis-fixed-window & local-fallback & 100 & 88 & 0 & 2951.48 & 2962.07 & 2918.22 & 2127.68 \\
+redis-down & redis-token-bucket & fail-closed & 100 & 100 & 0 & 3206.98 & 3329.21 & 2950.79 & 2286.12 \\
+redis-down & redis-token-bucket & fail-open & 100 & 0 & 0 & 2961.45 & 3008.68 & 2928.59 & 2497.42 \\
+redis-down & redis-token-bucket & local-fallback & 100 & 88 & 0 & 2448.50 & 2490.20 & 2412.40 & 2378.87 \\
+redis-down & redis-sliding-window & fail-closed & 100 & 100 & 0 & 2283.58 & 2299.40 & 2225.01 & 2175.71 \\
+redis-down & redis-sliding-window & fail-open & 100 & 0 & 0 & 3063.76 & 3067.63 & 2981.58 & 2154.83 \\
+redis-down & redis-sliding-window & local-fallback & 100 & 88 & 0 & 3540.12 & 3554.33 & 3446.66 & 2261.34 \\
+redis-recovered & redis-fixed-window & fail-closed & 100 & 88 & 0 & 2218.77 & 2223.20 & 2143.45 & 2053.46 \\
+redis-recovered & redis-fixed-window & fail-open & 100 & 100 & 0 & 247.40 & 278.12 & 159.55 & 91.91 \\
+redis-recovered & redis-fixed-window & local-fallback & 100 & 88 & 0 & 2326.04 & 2360.29 & 2291.18 & 2074.95 \\
+redis-recovered & redis-token-bucket & fail-closed & 100 & 88 & 0 & 756.28 & 804.80 & 608.69 & 373.12 \\
+redis-recovered & redis-token-bucket & fail-open & 100 & 100 & 0 & 526.11 & 542.29 & 491.17 & 485.57 \\
+redis-recovered & redis-token-bucket & local-fallback & 100 & 99 & 0 & 184.78 & 214.50 & 139.28 & 65.26 \\
+redis-recovered & redis-sliding-window & fail-closed & 100 & 100 & 0 & 220.43 & 251.65 & 169.31 & 133.36 \\
+redis-recovered & redis-sliding-window & fail-open & 100 & 0 & 0 & 1082.92 & 1114.40 & 907.14 & 284.13 \\
+redis-recovered & redis-sliding-window & local-fallback & 100 & 100 & 0 & 158.65 & 180.99 & 93.61 & 76.96 \\
+\hline
+\end{tabular}
+\end{table*}
+
+\subsection{HTTP Status Totals}
+The validated manual strategy matrix contains 6951 HTTP 200 responses, 0 HTTP 401 responses, 9 HTTP 429 responses, 340 HTTP 5xx responses, and 3500 client errors. The validated burst run contains 60 HTTP 200 responses and 420 HTTP 429 responses. The validated fault run contains 576 HTTP 200 responses, 2024 HTTP 429 responses, and 100 client errors.
+
+\section{Discussion}
+\subsection{Observations}
+The Redis fixed-window and Redis token-bucket strategies have complete HTTP 200 samples in the strategy matrix. Redis sliding-window has usable successful samples but also mixed 429, 5xx, and client-error populations in several cells. In-memory strategy-matrix rows are not usable for successful-path analysis because all their measured records are client errors. Burst behavior is rejection dominated. Fault behavior shows that Redis policy selection changes both completion behavior and tail latency.
+
+\subsection{Interpretation}
+The evidence supports comparing successful-path p95 and p99 only for cells with nonzero HTTP 200 samples. The completed-HTTP population is useful for gateway behavior but mixes success and failure statuses. Client-error rows represent a separate population and should be treated as reliability evidence rather than gateway component-latency evidence.
+
+\subsection{Hypotheses}
+Large p99 values in some Redis and fault rows may reflect local resource contention, backend delay, Redis behavior, request scheduling, logging overhead, or timeout boundaries. These are hypotheses, not confirmed causes, because no ablation or controlled resource-isolation experiment was run.
+
+\subsection{Limitations}
+The main limitation is that the strategy matrix is partially valid rather than fully valid. The burst experiment is valid but strongly shaped by route quota. The fault experiment is valid but includes sparse backend samples in rejection-heavy rows. No confidence intervals or statistical significance tests were computed.
+
+\section{Threats to Validity}
+The evaluation was performed in a local benchmark environment, so host scheduling, Docker locality, Redis locality, backend locality, and JVM warm-up can affect p95 and p99. Route quota effects are substantial, especially in the burst experiment. Shared resource interference can inflate tails. The number of trials is limited, and the benchmark uses fixed-count concurrent execution rather than an open-loop paced generator, so coordinated omission risk remains possible. The percentile estimator is nearest-rank-ceil over pooled samples, not trial-level averaging. HTTP 200, 429, 5xx, client errors, and timeouts are separated in this report; mixing them would change the interpretation. Synchronous request logging may sit within the measured request path, but no logging ablation was run. The in-memory strategy-matrix data has no successful HTTP samples, and in-memory metrics windows were not separately validated. No statistical significance testing was performed.
+
+\section{Future Work}
+Future work should add a dedicated open-loop load generator, more repetitions, confidence intervals, logging ablation, distributed histogram aggregation, per-tenant fairness analysis, and a verified high-quota route for a complete four-strategy successful-path matrix. Tail-aware adaptive rate limiting and a predictive p99 SLO controller are promising extensions, but they are not implemented in the current repository evidence.
+
+\section{Conclusion}
+GateShield's existing rate-limiting strategies affect p95 and p99 latency differently, but the validated evidence does not support a universal best-strategy claim. The partial strategy matrix supports successful-path comparison for Redis fixed-window and Redis token-bucket across baseline, backend-delay, and overload scenarios, and partially supports Redis sliding-window analysis. It does not support successful-path conclusions for in-memory strategy-matrix rows. The burst experiment validly demonstrates rejection-dominated behavior under the active route quota. The Redis fault experiment validly shows that failure policy changes both completion behavior and tail latency, with some fail-open and local-fallback rows preserving completed responses while producing large tails. A complete answer to all research questions requires additional validated high-quota, multi-trial evidence.
+
+\section*{Artifact References}
+External literature references are \textit{Pending additional validated evidence}. Repository artifacts used in this report are:
+
+\begin{itemize}
+\item \code{reports/phase6_tail_latency_analysis_20260730-162304.md}
+\item \code{reports/manual_strategy_matrix_20260730-153953/strategy-matrix/manifest.json}
+\item \code{reports/phase4_tail_latency_20260730-145813/burst/burst-*.json}
+\item \code{reports/phase4_tail_latency_20260730-145813/fault-tolerance/report.json}
+\item \code{api-gateway/src/main/java/com/example/apigateway/filter/RateLimitingFilter.java}
+\item \code{api-gateway/src/main/java/com/example/apigateway/controller/ApiGatewayController.java}
+\item \code{api-gateway/src/main/java/com/example/apigateway/service/GatewayRouteService.java}
+\item \code{api-gateway/src/main/java/com/example/apigateway/service/TenantService.java}
+\item \code{api-gateway/src/main/java/com/example/apigateway/service/RedisFailureHandler.java}
+\end{itemize}
+
+\end{document}

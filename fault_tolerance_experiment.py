@@ -82,6 +82,10 @@ def generated_client_id(prefix: str, target_name: str, phase: str) -> str:
     return f"198.19.{int(digest[0:2], 16)}.{int(digest[2:4], 16)}"
 
 
+def slug(value: str) -> str:
+    return "".join(char if char.isalnum() or char in ("-", "_") else "-" for char in value).strip("-")
+
+
 def quick_bench(
     url: str,
     requests_count: int,
@@ -91,13 +95,12 @@ def quick_bench(
     client_id: str,
     warmup_requests: int,
     warmup_concurrency: int,
+    experiment_id: str,
+    output_path: Path,
 ) -> dict:
-    import tempfile
-
     repo_root = Path(__file__).resolve().parent
     benchmark = repo_root / "gateway_latency_benchmark.py"
-    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
-        tmp_path = tmp.name
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     command = [
         sys.executable,
@@ -114,23 +117,34 @@ def quick_bench(
         str(timeout),
         "--client-id",
         client_id,
+        "--experiment-id",
+        experiment_id,
         "--warmup-requests",
         str(warmup_requests),
         "--warmup-concurrency",
         str(warmup_concurrency),
         "--output",
-        tmp_path,
+        str(output_path),
     ]
     result = subprocess.run(command, capture_output=True, text=True, cwd=repo_root)
     if result.returncode != 0:
-        return {"error": result.stderr or result.stdout}
+        return {
+            "error": result.stderr or result.stdout,
+            "rawReportPath": str(output_path),
+            "benchmarkCommand": command,
+        }
 
     try:
-        data = json.loads(Path(tmp_path).read_text(encoding="utf-8"))
-        Path(tmp_path).unlink(missing_ok=True)
+        data = json.loads(output_path.read_text(encoding="utf-8"))
+        data["rawReportPath"] = str(output_path)
+        data["benchmarkCommand"] = command
         return data
     except Exception as exc:
-        return {"error": str(exc)}
+        return {
+            "error": str(exc),
+            "rawReportPath": str(output_path),
+            "benchmarkCommand": command,
+        }
 
 
 def summarize(report: dict) -> dict:
@@ -142,8 +156,11 @@ def summarize(report: dict) -> dict:
             "errorCount": 1,
             "throughputRps": None,
             "gatewayP95Ms": None,
+            "gatewayP99Ms": None,
             "rateLimiterP95Ms": None,
+            "rateLimiterP99Ms": None,
             "clientP95Ms": None,
+            "clientP99Ms": None,
             "error": report["error"],
         }
 
@@ -161,8 +178,11 @@ def summarize(report: dict) -> dict:
         "errorCount": len(report.get("errors", [])),
         "throughputRps": report.get("throughputRequestsPerSecond"),
         "gatewayP95Ms": safe_metric("gatewayHeader", "p95Ms"),
+        "gatewayP99Ms": safe_metric("gatewayHeader", "p99Ms"),
         "rateLimiterP95Ms": safe_metric("rateLimiterHeader", "p95Ms"),
+        "rateLimiterP99Ms": safe_metric("rateLimiterHeader", "p99Ms"),
         "clientP95Ms": safe_metric("clientObserved", "p95Ms"),
+        "clientP99Ms": safe_metric("clientObserved", "p99Ms"),
     }
 
 
@@ -182,11 +202,16 @@ def wait_for_operator(message: str) -> None:
     input("Press ENTER when ready...")
 
 
-def run_phase(phase_name: str, targets: list[tuple[str, str, str]], args: argparse.Namespace) -> list[dict]:
+def run_phase(phase_name: str,
+              targets: list[tuple[str, str, str]],
+              args: argparse.Namespace,
+              output_dir: Path) -> list[dict]:
     results = []
     warmup_concurrency = args.warmup_concurrency or args.concurrency
     for strategy, policy, url in targets:
         target_name = f"{strategy}@{policy}"
+        experiment_id = f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}_{slug(target_name)}_{slug(phase_name)}"
+        raw_report_path = output_dir / "raw" / slug(phase_name) / f"{slug(target_name)}.json"
         client_id = generated_client_id(args.client_id_prefix, target_name, phase_name)
         print(f"[{phase_name}] {target_name} -> {url} client={client_id}")
         raw = quick_bench(
@@ -198,14 +223,19 @@ def run_phase(phase_name: str, targets: list[tuple[str, str, str]], args: argpar
             client_id,
             args.warmup_requests,
             warmup_concurrency,
+            experiment_id,
+            raw_report_path,
         )
         results.append({
+            "experimentId": experiment_id,
             "strategy": strategy,
             "policy": policy,
             "targetName": target_name,
             "url": url,
             "phase": phase_name,
             "clientId": client_id,
+            "rawReportPath": raw.get("rawReportPath", str(raw_report_path)),
+            "benchmarkCommand": raw.get("benchmarkCommand"),
             "summary": summarize(raw),
         })
     return results
@@ -215,6 +245,7 @@ def main() -> None:
     args = parse_args()
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_dir = output_path.parent
 
     strategies = selected_values(args.strategies, "strategy")
     policies = selected_values(args.policies, "policy")
@@ -239,7 +270,7 @@ def main() -> None:
     print("\nPHASE 1: Redis healthy")
     report["phases"].append({
         "name": "redis-healthy",
-        "results": run_phase("redis-healthy", targets, args),
+        "results": run_phase("redis-healthy", targets, args, output_dir),
     })
 
     print("\nPHASE 2: Redis down")
@@ -250,7 +281,7 @@ def main() -> None:
     time.sleep(2)
     report["phases"].append({
         "name": "redis-down",
-        "results": run_phase("redis-down", targets, args),
+        "results": run_phase("redis-down", targets, args, output_dir),
     })
 
     if not args.skip_recovery_phase:
@@ -262,7 +293,7 @@ def main() -> None:
         time.sleep(2)
         report["phases"].append({
             "name": "redis-recovered",
-            "results": run_phase("redis-recovered", targets, args),
+            "results": run_phase("redis-recovered", targets, args, output_dir),
         })
 
     output_path.write_text(json.dumps(report, indent=2), encoding="utf-8")

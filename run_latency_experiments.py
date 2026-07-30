@@ -355,6 +355,32 @@ def fetch_internal_report(url: str, timeout: float) -> dict:
         return {"error": str(exc)}
 
 
+def command_output(command: list[str], cwd: Path) -> str:
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=5,
+        )
+    except Exception:
+        return "unknown"
+    if result.returncode != 0:
+        return "unknown"
+    return result.stdout.strip() or "unknown"
+
+
+def git_metadata(repo_root: Path) -> dict:
+    status = command_output(["git", "status", "--short"], repo_root)
+    return {
+        "commit": command_output(["git", "rev-parse", "HEAD"], repo_root),
+        "dirty": status != "unknown" and bool(status),
+        "statusShort": "" if status == "unknown" else status,
+    }
+
+
 def generated_client_id(prefix: str, target_name: str, scenario_name: str, trial: int) -> str:
     seed = f"{prefix}:{target_name}:{scenario_name}:{trial}".encode("utf-8")
     digest = hashlib.sha1(seed).hexdigest()
@@ -370,9 +396,10 @@ def run_benchmark(
     scenario: Scenario,
     output_path: Path,
     client_id: str,
+    experiment_id: str,
     warmup_requests: int,
     warmup_concurrency: int,
-) -> None:
+) -> list[str]:
     repo_root = Path(__file__).resolve().parent
     benchmark_script = repo_root / "gateway_latency_benchmark.py"
     command = [
@@ -392,12 +419,15 @@ def run_benchmark(
         str(output_path),
         "--client-id",
         client_id,
+        "--experiment-id",
+        experiment_id,
         "--warmup-requests",
         str(warmup_requests),
         "--warmup-concurrency",
         str(warmup_concurrency),
     ]
     subprocess.run(command, check=True, cwd=repo_root)
+    return command
 
 
 def load_json(path: Path) -> dict:
@@ -498,6 +528,7 @@ def mean_value(aggregate: dict, field: str):
 def main() -> None:
     args = parse_args()
     repo_root = Path(__file__).resolve().parent
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     output_dir = Path(args.output_dir)
     if not output_dir.is_absolute():
         output_dir = repo_root / output_dir
@@ -516,11 +547,15 @@ def main() -> None:
 
     manifest: dict = {
         "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "runId": run_id,
         "strategyMatrix": args.strategy_matrix,
         "faultPolicyMatrix": args.fault_policy_matrix,
         "trialCount": trials,
         "warmupRequests": args.warmup_requests,
         "clientIdentityIsolation": "X-Forwarded-For",
+        "pythonVersion": sys.version,
+        "argv": sys.argv,
+        "git": git_metadata(repo_root),
         "scenarios": [scenario.__dict__ for scenario in scenarios],
         "targets": [],
         "strategies": [],
@@ -552,6 +587,7 @@ def main() -> None:
                     scenario.name,
                     trial,
                 )
+                experiment_id = f"{run_id}_{slug(target.target_name)}_{slug(scenario.name)}_trial-{trial}"
                 output_path = scenario_dir / f"trial-{trial}.json"
                 warmup_concurrency = args.warmup_concurrency or scenario.concurrency
 
@@ -561,12 +597,13 @@ def main() -> None:
                 )
 
                 try:
-                    run_benchmark(
+                    benchmark_command = run_benchmark(
                         target.benchmark_url,
                         args.timeout,
                         scenario,
                         output_path,
                         client_id,
+                        experiment_id,
                         args.warmup_requests,
                         warmup_concurrency,
                     )
@@ -574,8 +611,10 @@ def main() -> None:
                     if args.continue_on_error:
                         trial_entries.append({
                             "trial": trial,
+                            "experimentId": experiment_id,
                             "clientId": client_id,
                             "reportPath": str(output_path),
+                            "benchmarkCommand": list(exc.cmd) if isinstance(exc.cmd, list) else str(exc.cmd),
                             "error": str(exc),
                         })
                         print(f"[WARN] Benchmark failed and was skipped: {exc}")
@@ -587,8 +626,10 @@ def main() -> None:
                 trial_summaries.append(summary)
                 trial_entries.append({
                     "trial": trial,
+                    "experimentId": experiment_id,
                     "clientId": client_id,
                     "reportPath": str(output_path),
+                    "benchmarkCommand": benchmark_command,
                     "summary": summary,
                 })
 
